@@ -49,6 +49,13 @@ data/**/*.sqlite3
 # must be committed so the test split can be shown as locked and reproducible.
 !data/splits/*.json
 !data/splits/*.csv
+# Phase 1 audit records produced by tools/inspect_dataset.py are evidence, not
+# payload: they contain no image pixels and must be reviewable in the repository.
+!data/reviewed/audit/*.json
+!data/reviewed/audit/*.csv
+# Contact sheets are rendered images and stay local/ignored. Listed only so the
+# intent is explicit: do NOT add a negation for these.
+data/reviewed/audit/artifacts/
 
 # Media payloads: ignored globally so raw imagery cannot be committed from any
 # directory. These match files, not directories, so the negations below work.
