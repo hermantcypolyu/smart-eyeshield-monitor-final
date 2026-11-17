@@ -1,0 +1,95 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+config/app.yaml
+firmware/esp32_eye_shield_monitor/config.h
+*.pem
+*.key
+
+# Model weights and training artifacts.
+# Plan section 4 forbids committing large model artifacts, so no weight file is
+# ever tracked -- including models/best.pt. The demo laptop keeps it locally;
+# see models/README.md. Never add a "!models/best.pt" negation here.
+models/*.pt
+models/*.onnx
+models/*.engine
+models/*.mlpackage
+models/*.tflite
+runs/
+training/runs/
+*.cache
+
+# Dataset payloads.
+# Order matters: gitignore uses last-match-wins, so every negation below must
+# come AFTER the ignore rule it carves an exception out of.
+data/**/*.txt
+data/**/*.json
+data/**/*.csv
+data/**/*.zip
+data/**/*.7z
+data/**/*.tar*
+data/**/*.db
+data/**/*.sqlite3
+# Split manifests and class statistics are small, auditable text records that
+# must be committed so the test split can be shown as locked and reproducible.
+!data/splits/*.json
+!data/splits/*.csv
+
+# Media payloads: ignored globally so raw imagery cannot be committed from any
+# directory. These match files, not directories, so the negations below work.
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.webp
+*.tif
+*.tiff
+*.gif
+*.heic
+*.mp4
+*.mov
+*.avi
+*.mkv
+# Documentation figures are generated and reviewed for licence before commit.
+!docs/images/**
+!docs/images/**/*.png
+!docs/images/**/*.jpg
+
+# Runtime output
+logs/
+*.log
+*.jsonl
+experiments/*.json
+experiments/raw/
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+
+# Arduino build output
+firmware/**/build/

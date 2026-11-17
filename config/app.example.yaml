@@ -1,0 +1,38 @@
+# Application configuration — copy to config/app.yaml and edit there.
+# config/app.yaml is git-ignored. Every value below is validated and bounded at
+# startup by src/config.py; an invalid value stops the app with a readable error
+# instead of silently running with an unsafe setting.
+
+camera:
+  index: 0
+  width: 1280
+  height: 720
+
+model:
+  path: models/best.pt
+  image_size: 640
+  confidence_threshold: 0.55
+  iou_threshold: 0.45
+
+observation:
+  # A box smaller than this fraction of the frame cannot support a compliance
+  # decision and is treated as UNKNOWN, never as a violation or as safe.
+  minimum_box_area_ratio: 0.01
+
+filter:
+  # Time-based, not frame-based, so variable FPS cannot change safety behaviour.
+  confirmation_seconds: 2.0
+  window_seconds: 2.0
+  violation_ratio: 0.80
+  clearance_seconds: 2.0
+
+serial:
+  port: auto
+  baudrate: 115200
+  heartbeat_seconds: 2.0
+  ack_timeout_seconds: 1.0
+  retry_count: 3
+
+logging:
+  directory: logs
+  save_event_images: false

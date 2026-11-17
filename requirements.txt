@@ -1,0 +1,22 @@
+# Python 3.12 is required (tested on 3.12.4, macOS arm64).
+# Python 3.13+ is not supported by the pinned PyTorch/Ultralytics combination.
+#
+# Install:
+#   python3.12 -m venv .venv
+#   .venv/bin/python -m pip install -r requirements.txt
+#
+# All versions below were resolved and verified on this machine on 2026-11-17.
+# Re-pin only after re-running `python tools/env_check.py` and the test suite.
+
+# --- Core runtime ---
+ultralytics==8.4.215
+torch==2.15.0
+torchvision==0.29.2
+numpy==2.5.5
+opencv-python==5.0.0.93
+PyYAML==6.0.3
+python-dotenv==1.2.4
+pyserial==3.5
+
+# --- Development / test ---
+pytest==9.2.0

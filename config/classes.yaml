@@ -1,0 +1,22 @@
+# Canonical class mapping for the compliance model.
+# The numeric IDs must match the order used in the YOLO training data.yaml and
+# the class indices returned by the trained best.pt. Changing this file without
+# retraining silently inverts safety decisions, so it is treated as source code.
+
+protocol_version: 1
+
+classes:
+  0:
+    name: goggles
+    # Meaning: a visible person is correctly wearing genuine laboratory or
+    # industrial safety goggles over the eyes.
+    compliance: safe
+  1:
+    name: no_goggles
+    # Meaning: the relevant face/head region is sufficiently visible for
+    # assessment, but genuine safety goggles are absent or incorrectly worn.
+    compliance: violation
+
+# Anything the model emits outside this map, or any detection rejected by the
+# observation validator, becomes UNKNOWN — never implicitly safe.
+unmapped_class_policy: unknown

@@ -1,0 +1,1 @@
+trial_id,scenario_id,violation_start_ts,confirmed_ts,serial_sent_ts,esp32_ack_ts,alarm_active_ts,total_latency_ms,result,notes,recorded_at
