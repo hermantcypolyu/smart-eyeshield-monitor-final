@@ -138,12 +138,62 @@ negations in `.gitignore`, since the blanket `data/**/*.json` and `data/**/*.csv
 rules would otherwise have excluded every audit record — a trap that is easy to
 reintroduce, so the negation lines carry a warning comment.
 
+## D-014 — Dataset provenance is recorded, not treated as a blocker
+
+**Date:** Phase 1 closeout correction
+**Decision:** Record the audited archive's provenance as: original source
+`workspace-3vzwb/safety-glasses-dataset`, fork/export workspace
+`eie3360-fwbnu`, licence CC BY 4.0. The fork/export relationship is **not** a
+blocking finding. The Phase 1 verdict remains `rejected_for_training`, but on the
+five dataset-content findings only.
+**Why:** The earlier report listed the differing workspace name as an unresolved
+blocker requiring a human decision. That overstated the risk: a fork exporting
+under its own workspace name is expected behaviour, not a dataset substitution,
+and no re-download or new fork is needed. Attribution in the final submission
+must still name the original source under CC BY 4.0.
+**Revisit if:** an audit of the export's contents contradicts the recorded
+origin, or the licence terms change.
+
+## D-015 — Board target is the generic `ESP32S3 Dev Module`
+
+**Date:** 2026-11-17 (Phase 2A)
+**Decision:** Compile and upload against `esp32:esp32:esp32s3` ("ESP32S3 Dev
+Module"), with **USB CDC On Boot: Enabled**.
+**Why:** Verified with the installed toolchain (arduino-cli 1.5.1, esp32 core
+3.3.11): `board listall` contains no board entry named "ESP32-S3 UNO". The
+official core ships only generic S3 targets, so selecting an Arduino UNO
+(ATmega328P) target would be wrong and a vendor-specific entry does not exist.
+`USB CDC On Boot` must be Enabled because the sketch's Serial Monitor output
+depends on native USB CDC; with it Disabled the firmware runs but every command
+appears to do nothing.
+**Revisit if:** the board vendor publishes a board definition, or the board is
+found to use only a UART bridge with no native USB.
+
+## D-016 — Output polarity and buzzer drive are centralised
+
+**Date:** 2026-11-17 (Phase 2A)
+**Decision:** Give each of the three outputs its own compile-time
+`*_ACTIVE_HIGH` flag, applied in exactly one function (`writeActiveLevel`).
+Drive the passive buzzer with LEDC PWM behind an `ESP_ARDUINO_VERSION_MAJOR`
+branch (3.x attaches by pin, 2.x by channel), and **detach the pin from LEDC
+before parking it** at its inactive GPIO level.
+**Why:** Polarity is unknown until the modules are physically observed, and the
+SELF_TEST makes an inverted output obvious. Centralising the inversion means
+fixing it is a one-line config change with no logic edits. For the buzzer, a
+passive piezo needs a square wave rather than a DC level, and `digitalWrite()` on
+a pin still routed to the LEDC peripheral does not reliably change its level —
+hence detach-then-park. The version branch keeps the sketch compiling on both
+supported core generations instead of pinning the project to one.
+**Revisit if:** the observed modules turn out to be active-low (recorded in
+`config.h`, not here), or the buzzer proves to be an active type that ignores PWM
+frequency, in which case it must be replaced.
+
 ## Open decisions (to be recorded when resolved)
 
 | ID | Question | Earliest phase |
 |---|---|---|
 | O-01 | Final confidence threshold (validation-selected, then frozen) | 2 |
-| O-02 | Whether LED module is active-high or active-low | 5 |
+| O-02 | Whether LED module is active-high or active-low | 2A — observable now via `SELF_TEST`; record the answer in `config.h`, not here |
 | O-03 | NVS persistence of incident state across reboot | 5 |
 | O-04 | Exact Blynk virtual-pin allocation | 6 |
 | O-05 | YOLOv8n vs. an alternative, based on measured comparison | 2 |

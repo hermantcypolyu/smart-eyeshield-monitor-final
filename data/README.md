@@ -43,11 +43,14 @@ The source export was audited read-only; see `docs/dataset_audit.md` for the ful
 report and `data/reviewed/audit/` for the 13 machine-readable records.
 
 **Verdict: `rejected_for_training`.** The archive is a 5-class general-PPE export
-(`boots`, `glasses`, `gloves`, `helmet`, `vest`) from workspace
-`eie3360-fwbnu`, not the 2-class `goggles`/`no_goggles` scheme this project
-requires. Neither required class exists in the export, and `glasses` cannot be
-renamed to `goggles`: its median box covers 0.6 % of the frame with aspect ratio
-1.86, i.e. product cut-outs of eyewear rather than worn shields.
+(`boots`, `glasses`, `gloves`, `helmet`, `vest`), a CC BY 4.0 fork/export
+(`eie3360-fwbnu`) of `workspace-3vzwb/safety-glasses-dataset`, not the 2-class
+`goggles`/`no_goggles` scheme this project requires. Neither required class exists
+in the export, and `glasses` cannot be renamed to `goggles`: its median box
+covers 0.6 % of the frame at aspect ratio 1.86. Those are eyewear-level boxes,
+incompatible with the proposed head/face-region compliance labels. Geometry
+cannot settle what the images depict, so the `glasses` content requires human
+visual review.
 
 Measured: 400 images, 400 label files, 770 instances, 0 corrupt images, 0 exact
 duplicates, 377 near-duplicate pairs (video frames), 59 split-leakage groups, 2

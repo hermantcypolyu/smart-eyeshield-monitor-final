@@ -145,6 +145,7 @@ none are claimed.
 - [docs/protocol.md](./docs/protocol.md) — serial JSON schema
 - [docs/annotation_guideline.md](./docs/annotation_guideline.md) — two-class labelling rules
 - [docs/dataset_audit.md](./docs/dataset_audit.md) — Phase 1 audit of the source export (verdict: rejected for training)
+- [docs/hardware_bringup.md](./docs/hardware_bringup.md) — Phase 2A ESP32-S3 wiring, IDE settings, and physical test script
 - [docs/test_plan.md](./docs/test_plan.md) — Phase 0 checks and future test matrix
 - [docs/troubleshooting.md](./docs/troubleshooting.md) — common setup failures
 - [docs/blynk_setup.md](./docs/blynk_setup.md) — mobile dashboard (Phase 6 placeholder)
@@ -163,6 +164,10 @@ must point at a file, a test, or an experiment record — never an assumption.
 
 ## 9. Licence and data provenance
 
-Dataset provenance, its licence, and collection consent will be documented in
-Phase 1. Until then, no third-party dataset content is committed to this
-repository.
+The audited source dataset is `workspace-3vzwb/safety-glasses-dataset`, licence
+**CC BY 4.0**, accessed via the fork/export workspace `eie3360-fwbnu`. The
+fork/export relationship is recorded and requires no further download or fork;
+it is not a blocker. Attribution in the final submission names the original
+source under CC BY 4.0. See `docs/dataset_audit.md` §1.
+
+No third-party dataset content is committed to this repository.

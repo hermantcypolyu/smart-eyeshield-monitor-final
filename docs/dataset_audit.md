@@ -28,11 +28,21 @@ re-computed after the audit run and is unchanged.
 
 Evidence: `data/reviewed/audit/dataset_summary.json` → `source`.
 
-**Blocking issue — provenance mismatch.** The export identifies itself as
-workspace `eie3360-fwbnu`, project `safety-glasses-dataset-zyrcw`. `plan.md` §5.1
-names a different origin. The archive on disk therefore cannot be confirmed to be
-the dataset the plan intended to use. This is unresolved and requires a human
-decision (see §16).
+**Provenance — recorded, not blocking.** The archive on disk is a fork/export of
+the dataset named in the plan. The relationship is now recorded and closed:
+
+| Field | Value |
+|---|---|
+| Original source | `workspace-3vzwb/safety-glasses-dataset` |
+| Fork / export workspace | `eie3360-fwbnu` |
+| Licence | CC BY 4.0 |
+
+The export identifies itself as workspace `eie3360-fwbnu`, project
+`safety-glasses-dataset-zyrcw`. The differing workspace name is the expected
+consequence of exporting a fork, not a dataset substitution. This is **not a
+blocker**: it requires no further download and no new fork. Attribution must name
+the original source `workspace-3vzwb/safety-glasses-dataset` under CC BY 4.0 in
+the final submission.
 
 ## 2. Declared metadata
 
@@ -103,20 +113,23 @@ exported, independent of every other issue.
 ## 7. `glasses` is not `goggles`
 
 The `glasses` class merges genuine safety goggles with prescription spectacles
-and sunglasses. Box geometry supports this rather than a visual impression:
+and sunglasses. Box geometry is the reason this class cannot be reused as-is for
+the compliance labels this project needs:
 
 - median area ratio **0.0064** of the frame, i.e. roughly 0.6 % of the image;
 - median aspect ratio **1.86** (wide and short);
 - **78.9 %** of `glasses` boxes are below the 2 % area floor.
 
-Head-worn PPE on a person occupies a materially larger, less extreme region.
-These statistics are consistent with tight product cut-outs of eyewear rather
-than annotations of a worn shield, and the filename evidence in
-`source_manifest.csv` includes product-style names
-(`Protective-Glasses-png_15`, `prescription-safety-glasses-on-face_29`).
+These are eyewear-level boxes. They are **incompatible with the proposed
+head/face-region compliance labels**, which require a box covering the worn
+region on a person rather than the eyewear object alone. Geometry alone cannot
+establish whether a given image is a product cut-out or a worn item, so the
+semantic content of the `glasses` images **requires human visual review** before
+any reuse decision is made.
 
 Consequence: `glasses` **must not** be silently renamed to `goggles`. Doing so
-would train the safe/violation decision on the wrong concept.
+would train the safe/violation decision on the wrong concept, at the wrong box
+granularity.
 
 ## 8. Annotation quality
 
@@ -215,16 +228,20 @@ Phase 0 regression re-run after Phase 1 changes:
 
 Items 1 and 2 are disqualifying on their own. Items 3–5 are repairable by
 curation, but no repair was attempted here because that requires a human
-decision about provenance and the safe/violation definition.
+decision about the safe/violation definition and the label granularity.
+
+Provenance is **not** among the blocking findings: the fork/export relationship
+is recorded in §1 and requires no re-download.
 
 ## 16. What a human must decide next
 
-1. **Provenance.** Confirm whether `eie3360-fwbnu/safety-glasses-dataset-zyrcw`
-   is an acceptable substitute for the origin named in `plan.md` §5.1, or obtain
-   the intended dataset.
-2. **The two classes.** Decide whether `goggles`/`no_goggles` can be sourced at
+1. **The two classes.** Decide whether `goggles`/`no_goggles` can be sourced at
    all from this export, or whether a different acquisition is required. Absence
    of `glasses` boxes must not be read as `no_goggles`.
+2. **Visual review of `glasses`.** Inspect the `glasses` images directly to
+   determine what they actually depict and whether any are usable as
+   `goggles` evidence at head/face-region granularity. Box statistics cannot
+   answer this.
 3. **The five leaking source groups** (`SG6`, `SG8`, `SG11`, `SG2`, `SG14`) and
    the 49 near-duplicate cross-split pairs: assign each source group to exactly
    one split.

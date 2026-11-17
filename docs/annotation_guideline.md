@@ -73,7 +73,11 @@ project (see `plan.md §1.2`): failing to detect goggles does not prove a violat
 
 | Source | Licence | Added | Notes |
 |---|---|---|---|
-| _(to be filled in Phase 1)_ | | | |
+| `workspace-3vzwb/safety-glasses-dataset` | CC BY 4.0 | Phase 1 audit | Original source. Audited via the fork/export below. |
+| Fork/export workspace `eie3360-fwbnu` | CC BY 4.0 | Phase 1 audit | 5-class general-PPE export (`boots`, `glasses`, `gloves`, `helmet`, `vest`). Rejected for training — see `docs/dataset_audit.md`. |
+
+Attribution in the final submission must name the original source
+`workspace-3vzwb/safety-glasses-dataset` under CC BY 4.0.
 
 No third-party or personal data is committed to this repository. Consent and
 collection purpose for self-collected data are recorded here once collection begins.

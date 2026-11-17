@@ -1,473 +1,88 @@
-# AI Agent Development Plan
+# Full-Feature Prototype Development Plan
 
-## Project Identity
+## Project
 
-**Project title:** Smart Biohazard & Laser Lab Eye-Shield Monitor: Automated Safety Goggles Compliance with ESP32 Latching Alarms and IoT Mobile Verification
+**Title:** Smart Biohazard & Laser Lab Eye-Shield Monitor: Automated Safety Goggles Compliance with ESP32 Latching Alarms and IoT Mobile Verification
 
 **Course:** EIE3127 AI-enabled IoT Project
 
-**Primary objective:** Build a reliable proof-of-concept that detects whether a visible person is correctly wearing safety goggles, confirms a sustained violation, sends a structured alert to an ESP32-S3, latches a physical alarm, notifies a supervisor through Blynk, and permits safe human-controlled acknowledgement and reset.
-
-**Target quality:** A/A+ standard. Prioritise reliability, defensible AI evaluation, complete integration, measurable results, clear documentation, and a stable live demonstration over unnecessary features.
+**Development priority:** Build and verify the complete working prototype first. This is not an MVP plan. All proposed core features must work end to end before extensive optimisation, exhaustive dataset tooling, or report polishing.
 
 ---
 
-## 1. Instructions to the Development Agent
+## 1. Primary Objective
 
-Act as the principal software and embedded-systems engineer for this project. Develop the system incrementally, keep every stage runnable, and do not replace working modules with untested large rewrites.
-
-Follow these rules throughout development:
-
-1. Never fabricate training results, test results, hardware responses, screenshots, timings, or Blynk delivery records.
-2. Never assume that failure to detect goggles proves a `no_goggles` violation.
-3. Use a purpose-trained compliance model with consistent `goggles` and `no_goggles` labels.
-4. Do not use or test any 7B model.
-5. Use YOLOv8n as the primary model unless measured evidence supports a change.
-6. Keep safety decisions deterministic and explainable. AI proposes the observed class; explicit software logic decides whether an incident is created.
-7. The ESP32 alarm must remain latched after the visual violation disappears.
-8. `Silence`, `Acknowledge`, and `Reset` must remain separate actions.
-9. A remote reset must be rejected while a violation remains, while the safe-clear period is incomplete, or while the laptop-to-ESP32 link is unhealthy.
-10. Local alarm operation must not depend on Blynk remaining connected.
-11. Keep secrets outside source code. Do not commit Wi-Fi passwords, Blynk tokens, Roboflow keys, or private dataset credentials.
-12. Add clear comments only where they explain design intent, safety behaviour, protocol rules, or non-obvious logic.
-13. Record important decisions in `docs/decision_log.md`.
-14. Record every experiment in a machine-readable CSV and a short Markdown note.
-15. After each milestone, run the defined acceptance tests before moving to the next milestone.
-
----
-
-## 2. System Scope
-
-### 2.1 In scope
-
-- Live USB webcam capture on a laptop.
-- Custom-trained Ultralytics YOLOv8n inference.
-- Two compliance labels: `goggles` and `no_goggles`.
-- Confidence filtering and time-based temporal validation.
-- Incident creation with unique incident IDs.
-- Newline-delimited JSON communication through PySerial.
-- ESP32-S3 alarm state machine.
-- Red and green traffic-light LEDs.
-- Passive buzzer with non-blocking tone generation.
-- Blynk mobile status, notification, silence, acknowledge, and conditional reset.
-- Local event logging.
-- AI evaluation and end-to-end system testing.
-- Reproducible setup and demonstration scripts.
-
-### 2.2 Out of scope unless all core acceptance tests already pass
-
-- Face recognition or worker identification.
-- Cloud video upload.
-- Automatic disciplinary decisions.
-- Door locks, access-control systems, servos, gas sensors, or unrelated sensors.
-- Multi-camera tracking.
-- Production deployment claims.
-- Medical, legal, or regulatory certification claims.
-
-### 2.3 Safety and privacy boundaries
-
-This is an educational proof-of-concept, not a certified safety device. It must be presented as an additional monitoring aid and not a replacement for trained supervisors, laboratory procedures, laser interlocks, risk assessments, or approved PPE procedures.
-
-Avoid storing raw video by default. Store event metadata and explicitly selected test images only. Where people participate in self-collected data, obtain consent and document the collection purpose.
-
----
-
-## 3. Intended System Architecture
+Deliver a reliable, demonstrable prototype with this complete workflow:
 
 ```text
 USB Webcam
-    |
-    v
-Laptop Python Application
-    |- OpenCV frame capture
-    |- YOLOv8n inference
-    |- Observation validation
-    |- Temporal filtering
-    |- Incident manager
-    |- CSV/JSONL logger
-    |- PySerial transport and heartbeat
-    v
-USB Serial: newline-delimited JSON
-    |
-    v
-ESP32-S3 UNO
-    |- JSON parser
-    |- Communication watchdog
-    |- Latched alarm state machine
-    |- Red LED: GPIO12
-    |- Green LED: GPIO11
-    |- Passive buzzer: GPIO14
-    |- Wi-Fi and Blynk client
-    v
-Blynk Mobile Dashboard
-    |- Current system state
-    |- Incident information
-    |- Push/event notification
-    |- Silence command
-    |- Acknowledge command
-    |- Conditional reset command
+    -> custom-trained YOLOv8n goggles/no_goggles detection
+    -> confidence and 2-second temporal filtering
+    -> incident creation
+    -> newline-delimited JSON over USB serial
+    -> ESP32-S3 latched alarm
+    -> red/green traffic-light LEDs and passive buzzer
+    -> Blynk mobile notification
+    -> separate Silence, Acknowledge, and conditional Reset controls
+    -> event logging and visible system status
 ```
 
-The laptop performs computer-vision inference. The ESP32-S3 independently owns the latched alarm state. Loss of Blynk must not clear or prevent the local physical alarm.
+The prototype is only considered feature-complete when every component above works together on the final laptop and hardware.
 
 ---
 
-## 4. Required Repository Structure
+## 2. Non-Negotiable Features
 
-Create this structure inside the new project folder:
+The development agent must implement all of the following. These are not optional stretch goals.
 
-```text
-project-root/
-├── README.md
-├── plan.md
-├── .gitignore
-├── .env.example
-├── requirements.txt
-├── config/
-│   ├── app.example.yaml
-│   └── classes.yaml
-├── data/
-│   ├── README.md
-│   ├── raw/
-│   ├── reviewed/
-│   ├── splits/
-│   └── test_cases/
-├── models/
-│   ├── README.md
-│   └── best.pt
-├── src/
-│   ├── main.py
-│   ├── config.py
-│   ├── camera.py
-│   ├── detector.py
-│   ├── observations.py
-│   ├── temporal_filter.py
-│   ├── incident_manager.py
-│   ├── serial_protocol.py
-│   ├── serial_transport.py
-│   ├── event_logger.py
-│   ├── overlay.py
-│   └── health_monitor.py
-├── firmware/
-│   └── esp32_eye_shield_monitor/
-│       ├── esp32_eye_shield_monitor.ino
-│       ├── config.example.h
-│       ├── protocol.h
-│       ├── alarm_state.h
-│       ├── alarm_state.cpp
-│       └── README.md
-├── training/
-│   ├── train_yolov8n.py
-│   ├── evaluate_model.py
-│   ├── export_metrics.py
-│   └── colab_training.ipynb
-├── tests/
-│   ├── test_temporal_filter.py
-│   ├── test_incident_manager.py
-│   ├── test_serial_protocol.py
-│   ├── test_recorded_video.py
-│   └── fixtures/
-├── tools/
-│   ├── serial_mock.py
-│   ├── camera_check.py
-│   ├── inspect_dataset.py
-│   ├── measure_latency.py
-│   └── export_demo_logs.py
-├── experiments/
-│   ├── ai_metrics.csv
-│   ├── system_trials.csv
-│   └── README.md
-└── docs/
-    ├── architecture.md
-    ├── annotation_guideline.md
-    ├── protocol.md
-    ├── blynk_setup.md
-    ├── test_plan.md
-    ├── demo_runbook.md
-    ├── troubleshooting.md
-    ├── decision_log.md
-    └── ai_usage_log.md
-```
+### 2.1 AI detection
 
-Do not commit private raw images, credentials, `.env`, `config.h`, generated training runs, or large model artifacts unless explicitly required.
+- Custom YOLOv8n model.
+- Final classes: `goggles` and `no_goggles`.
+- Live USB webcam inference.
+- Bounding boxes, class labels, confidence, measured FPS, and current decision state displayed locally.
+- `UNKNOWN` state when visual evidence is insufficient.
+- Absence of a goggles detection must never automatically mean `no_goggles`.
 
----
+### 2.2 Temporal validation
 
-## 5. Dataset and Annotation Plan
+- A violation must persist for approximately 2.0 seconds before alarm creation.
+- Use monotonic elapsed time rather than assuming a fixed frame rate.
+- Tolerate brief missed detections using a rolling observation window.
+- Initial target: at least 80% valid `no_goggles` observations within the recent 2.0-second window.
+- A short violation below the threshold must not trigger an incident.
+- Return to safe observation must persist for a configurable clearance period before reset becomes eligible.
 
-### 5.1 Starting source
+### 2.3 Incident management
 
-Use the proposed Roboflow Universe dataset only as a starting source:
+- Unique `incident_id` for every confirmed incident.
+- Only one active incident in the prototype.
+- No repeated incident creation for every frame.
+- No new incident until the previous incident has been validly reset.
+- Log incident creation, serial transmission, hardware acknowledgement, commands, reset result, and faults.
 
-`https://universe.roboflow.com/workspace-3vzwb/safety-glasses-dataset`
+### 2.4 Serial communication
 
-The source currently contains PPE classes such as `glasses`, but the final project requires a direct and defensible compliance decision. Audit the images and annotations before using them. Do not treat absence of a `glasses` detection as a `no_goggles` label.
+- Mac/laptop and ESP32-S3 communicate through USB serial at an initial target of 115200 baud.
+- UTF-8 newline-delimited JSON.
+- Required message types: handshake, heartbeat, violation, safety state, acknowledgement, hardware state, and reset result.
+- Duplicate incident suppression.
+- Invalid JSON handling.
+- Limited retry for unacknowledged incident messages.
+- Automatic reconnection and state synchronisation after serial interruption.
+- Serial disconnection must not clear a latched alarm.
 
-### 5.2 Final class definitions
+### 2.5 ESP32-S3 hardware alarm
 
-Use exactly these primary classes unless an evidence-based revision is documented:
+Hardware:
 
-- `goggles`: A visible person is correctly wearing genuine laboratory or industrial safety goggles over the eyes.
-- `no_goggles`: The relevant face or head region is sufficiently visible for assessment, but genuine safety goggles are absent or incorrectly positioned.
+- ESP32-S3 UNO development board.
+- Green traffic-light LED on GPIO11.
+- Red traffic-light LED on GPIO12.
+- Passive buzzer signal on GPIO14.
+- Common ground between the relevant modules.
 
-Ordinary prescription glasses and sunglasses must normally be labelled `no_goggles`, unless the project explicitly uses certified prescription safety eyewear and documents that distinction.
-
-### 5.3 Annotation unit
-
-Use the same semantic unit for both classes. Preferred approach: draw a consistent bounding box around the visible head/face region for both `goggles` and `no_goggles`.
-
-Do not mix a tiny goggles-only box for one class with a whole-person box for the other. Document minimum visible face size, treatment of side views, occlusion rules, incorrect wearing, goggles on the forehead, face shields, masks, and ambiguous cases in `docs/annotation_guideline.md`.
-
-### 5.4 Data quality targets
-
-Initial practical target:
-
-- 500 to 800 reviewed images.
-- At least 250 usable instances per class where practical.
-- Three to five participants in self-collected data.
-- Two to three designs of real safety goggles.
-- Bright, normal, and dim lighting.
-- Front, left, right, and downward head poses.
-- Hard negatives including ordinary glasses, sunglasses, masks, face shields, partial occlusion, empty scenes, posters, and small distant faces.
-
-These figures are collection targets, not fabricated achieved values.
-
-### 5.5 Split rules
-
-Create train, validation, and independent test splits, initially 70/20/10. Split by source video, recording session, or participant where possible, not by randomly distributing adjacent video frames. Adjacent frames from the same clip must not appear across train and test sets.
-
-Maintain a split manifest containing:
-
-- Image ID
-- Source
-- Participant/session ID where applicable
-- Class labels
-- Split
-- Lighting condition
-- Pose
-- Goggles type
-
-### 5.6 Dataset acceptance gate
-
-Do not begin final training until:
-
-- The annotation guideline exists.
-- All retained annotations have been reviewed.
-- Duplicate and near-duplicate frames have been checked.
-- Class counts are reported.
-- The independent test set is locked.
-- No test images are used to select training epochs, confidence thresholds, or augmentations.
-
----
-
-## 6. AI Training and Evaluation Plan
-
-### 6.1 Baseline
-
-- Framework: Ultralytics YOLOv8.
-- Base weights: `yolov8n.pt`.
-- Image size: begin with 640 pixels.
-- Epochs: begin with a maximum of approximately 100, with early stopping/patience.
-- Batch size: select according to Google Colab GPU memory.
-- Seed: fixed and recorded.
-- Save `args.yaml`, training curves, confusion matrix, precision-recall curves, and `best.pt`.
-
-All final hyperparameters must be copied from the actual training output into the experiment record.
-
-### 6.2 Evaluation metrics
-
-Report at minimum:
-
-- Class-wise precision.
-- Class-wise recall.
-- Class-wise F1-score.
-- mAP@0.5.
-- mAP@0.5:0.95.
-- Confusion matrix.
-- False-positive and false-negative examples.
-- Laptop inference FPS.
-- Per-frame inference latency.
-
-Because this is a safety-monitoring scenario, explicitly discuss false negatives for `no_goggles`. Do not optimise only for headline mAP.
-
-### 6.3 Threshold selection
-
-Select the confidence threshold using validation data, then freeze it before independent testing. Begin investigation around 0.50 to 0.60, but do not hard-code the final value without measurement.
-
-Log threshold experiments in this form:
-
-```text
-threshold,precision_no_goggles,recall_no_goggles,f1_no_goggles,false_triggers
-```
-
-### 6.4 Performance goals
-
-Treat these as goals, not claimed results:
-
-- Precision: at least 0.90.
-- Recall: at least 0.85.
-- F1-score: at least 0.87.
-- mAP@0.5: at least 0.90.
-- Runtime: at least 15 FPS on the demonstration laptop.
-- Post-filter false-trigger rate: below 5% in the defined system trials.
-
-If a goal is missed, retain the measured result, analyse the cause, and propose a justified improvement. Never hide unfavourable cases.
-
-### 6.5 AI acceptance gate
-
-The model is ready for integration only when:
-
-- `best.pt` loads locally without a cloud connection.
-- Class IDs match `classes.yaml`.
-- Independent test evaluation runs from one command.
-- Test-set results are exported to CSV/JSON.
-- Representative failure cases are saved.
-- Live webcam inference meets the minimum usable FPS.
-
----
-
-## 7. Laptop Application Design
-
-### 7.1 Runtime pipeline
-
-For every frame:
-
-1. Capture frame and monotonic timestamp.
-2. Run YOLO inference.
-3. Convert detections into validated observations.
-4. Reject observations that are too small or too ambiguous for a compliance decision.
-5. Update temporal filtering using elapsed time, not assumed frame count.
-6. Create one incident when a sustained violation becomes confirmed.
-7. Send the incident once and retry only according to the serial acknowledgement policy.
-8. Continue sending state/heartbeat messages.
-9. Draw a clear local overlay.
-10. Write structured event logs without blocking inference.
-
-### 7.2 Temporal filtering
-
-Default design target:
-
-- Confirmation duration: 2.0 seconds.
-- Rolling observation window: approximately 2.0 seconds.
-- Required violation proportion: initially 80% of valid observations.
-- Clearance duration before reset eligibility: 2.0 continuous seconds of safe observation.
-- Use `time.monotonic()` for durations.
-
-The filter must tolerate occasional dropped detections. It must distinguish:
-
-- `UNKNOWN`: no reliable compliance observation.
-- `SAFE`: a valid `goggles` observation.
-- `VIOLATION_PENDING`: insufficient-duration `no_goggles` evidence.
-- `VIOLATION_CONFIRMED`: sustained evidence sufficient to create an incident.
-
-`UNKNOWN` must not automatically become `SAFE` or `NO_GOGGLES`.
-
-### 7.3 Incident lifecycle
-
-Each confirmed incident receives a monotonically increasing or UUID-based `incident_id`. Only one active incident may exist in the basic PoC.
-
-Incident fields:
-
-```json
-{
-  "incident_id": 12,
-  "type": "no_goggles",
-  "confidence": 0.91,
-  "duration_ms": 2087,
-  "created_at": "ISO-8601 timestamp",
-  "source": "camera_0"
-}
-```
-
-The laptop must not repeatedly create incidents for every frame. A new incident is permitted only after the previous incident has been safely reset and a new violation occurs.
-
-### 7.4 Local overlay
-
-Display at least:
-
-- Bounding boxes and class names.
-- Detection confidence.
-- Current observation state.
-- Pending violation duration/progress.
-- Active incident ID.
-- Serial connection status.
-- ESP32-reported alarm state.
-- Actual measured FPS.
-
-Use green for confirmed compliance, amber for pending/unknown, and red for confirmed violation. Do not show green merely because no detection exists.
-
-### 7.5 Logging
-
-Write one JSONL event log and one CSV trial log. Include timestamps for:
-
-- First valid violation observation.
-- Violation confirmation.
-- Alert sent.
-- ESP32 acknowledgement received.
-- Blynk command received where available.
-- Silence, acknowledgement, reset request, reset acceptance, and reset rejection.
-- Connection loss and recovery.
-
----
-
-## 8. Serial Protocol
-
-### 8.1 Transport
-
-- USB serial through PySerial.
-- Begin at 115200 baud.
-- UTF-8 newline-delimited JSON, one complete object per line.
-- Maximum message length must be defined and enforced.
-- Ignore or reject malformed messages safely.
-- Never use blocking infinite waits.
-
-### 8.2 Required message types
-
-Laptop to ESP32:
-
-```json
-{"type":"hello","protocol":1,"app":"eye_shield_monitor"}
-{"type":"heartbeat","seq":101,"safe_observed":true}
-{"type":"violation","incident_id":12,"class":"no_goggles","confidence":0.91,"duration_ms":2087}
-{"type":"safety_state","state":"safe","clear_duration_ms":2150}
-```
-
-ESP32 to laptop:
-
-```json
-{"type":"hello_ack","protocol":1,"device":"esp32_s3"}
-{"type":"ack","incident_id":12,"state":"alarm_latched"}
-{"type":"state","incident_id":12,"state":"silenced"}
-{"type":"reset_result","incident_id":12,"accepted":false,"reason":"unsafe_or_link_unhealthy"}
-{"type":"heartbeat_ack","seq":101}
-```
-
-### 8.3 Reliability rules
-
-- Reject duplicate incident IDs without retriggering duplicate Blynk events.
-- Retry an unacknowledged violation message a limited number of times.
-- Reconnect automatically after serial loss.
-- On reconnection, perform a handshake and state synchronisation.
-- The ESP32 must not clear a latched incident because the serial port disconnects.
-- The laptop must not display hardware state as safe if it has not received a valid state report.
-
-Document the complete schema and transition effects in `docs/protocol.md`.
-
----
-
-## 9. ESP32-S3 Firmware Design
-
-### 9.1 Pin configuration
-
-- Red LED: GPIO12.
-- Green LED: GPIO11.
-- Passive buzzer: GPIO14.
-
-Keep all pin assignments in one configuration section. Confirm whether the LED module is active-high or active-low during hardware bring-up and record the result.
-
-### 9.2 Required state machine
-
-Implement explicit states:
+Required firmware states:
 
 - `BOOT`
 - `SAFE`
@@ -477,433 +92,648 @@ Implement explicit states:
 - `READY_TO_RESET`
 - `FAULT`
 
-Recommended output behaviour:
+Required behaviour:
 
-| State | Green LED | Red LED | Buzzer |
-|---|---|---|---|
-| BOOT | Blink | Off | Off |
-| SAFE | Solid | Off | Off |
-| ALARM_LATCHED | Off | Solid | Alarm pattern |
-| SILENCED | Off | Solid | Off |
-| ACKNOWLEDGED | Off | Slow blink | Off |
-| READY_TO_RESET | Alternate/defined pattern | Slow blink | Off |
-| FAULT | Off | Fast blink or distinct pattern | Optional short pattern |
+- `SAFE`: green on, red off, buzzer off.
+- Confirmed violation: red on, green off, buzzer active.
+- Alarm remains latched after the visual violation disappears.
+- Silence stops only the buzzer.
+- Acknowledge records human response but does not indicate safety.
+- Green must not represent merely acknowledged status.
+- Reset is accepted only when acknowledged, safe-clear is complete, and the laptop link is healthy.
+- Wi-Fi/Blynk failure must not disable the local alarm.
+- Firmware must use non-blocking `millis()` logic rather than long `delay()` calls.
 
-Do not use green to mean merely acknowledged. Green must represent a genuinely safe state.
+### 2.6 Blynk
 
-### 9.3 Command semantics
+Suggested virtual datastreams:
 
-- **Silence:** Stop the buzzer only. Keep the red incident indication and incident record.
-- **Acknowledge:** Record that a supervisor has accepted responsibility for checking the incident. Do not clear the incident.
-- **Reset:** Accept only if the incident has been acknowledged, the laptop reports a sufficient continuous safe-clear interval, and communication health is acceptable.
-
-### 9.4 Non-blocking firmware
-
-Do not use long `delay()` calls for buzzer patterns, LED blinking, Wi-Fi retries, or Blynk processing. Use `millis()`-based scheduling so serial parsing, alarm outputs, and Blynk remain responsive.
-
-### 9.5 Fault behaviour
-
-- Serial/laptop connection lost while safe: enter a visible fault state rather than presenting confirmed safety.
-- Serial lost while an alarm is latched: keep the alarm latched.
-- Wi-Fi/Blynk lost: preserve local serial and physical alarm operation.
-- ESP32 reboot with an unresolved incident: where practical, persist minimal incident state in Preferences/NVS; otherwise document this limitation and test reboot behaviour.
-
----
-
-## 10. Blynk Design
-
-Create a template and dashboard with clearly named datastreams. Exact virtual-pin allocation may be adjusted once, then documented.
-
-Suggested mapping:
-
-- V0: Current state text/value.
-- V1: Incident ID.
-- V2: Confidence.
+- V0: ESP32 system state.
+- V1: incident ID.
+- V2: confidence.
 - V3: Silence button.
 - V4: Acknowledge button.
 - V5: Reset button.
-- V6: Serial/laptop link health.
-- V7: Last event timestamp.
+- V6: laptop/serial health.
+- V7: latest event timestamp.
 
 Required behaviour:
 
-1. A newly latched incident triggers one Blynk event/notification.
-2. Duplicate serial messages must not create duplicate mobile notifications.
-3. Silence acts only on the buzzer.
-4. Acknowledge changes the incident state but does not indicate safety.
-5. Reset is conditionally accepted or rejected by the ESP32 state machine.
-6. Dashboard status reflects the ESP32 state, not a locally optimistic button state.
-7. Local alarm continues if Blynk or Wi-Fi is unavailable.
+- One mobile event/notification per newly latched incident.
+- Duplicate packets must not create duplicate notifications.
+- Silence, Acknowledge, and Reset must remain separate commands.
+- Unsafe reset must be rejected with a clear state/result.
+- Dashboard status must reflect the ESP32 state, not an optimistic local button state.
+- Local alarming continues if Wi-Fi or Blynk is unavailable.
 
-Store auth tokens and Wi-Fi credentials in an uncommitted `config.h` generated from `config.example.h`.
+### 2.7 Logging and operator interface
 
----
+The laptop interface must show:
 
-## 11. Development Phases and Acceptance Criteria
+- AI boxes, labels, and confidence.
+- Current observation: `SAFE`, `PENDING`, `VIOLATION`, or `UNKNOWN`.
+- Pending violation duration.
+- Active incident ID.
+- Serial connection and heartbeat status.
+- ESP32-reported alarm state.
+- Measured FPS.
 
-### Phase 0: Repository and reproducibility
+Store:
 
-Tasks:
-
-- Create the required folder structure.
-- Initialise Git.
-- Add `.gitignore`, `requirements.txt`, `.env.example`, example YAML configuration, and README.
-- Pin tested Python package versions after the environment works.
-- Add a one-command environment check.
-
-Acceptance:
-
-- A clean clone can create the environment and run `python tools/camera_check.py`.
-- No secrets are committed.
-- Configuration errors produce readable messages.
-
-### Phase 1: Dataset audit
-
-Tasks:
-
-- Download/export authorised source data.
-- Inspect class names, box consistency, duplicates, image sizes, corrupt files, and image sources.
-- Write the annotation guideline.
-- Relabel selected images into the final two-class scheme.
-- Add self-collected and hard-negative images.
-- Create leakage-safe splits and manifest.
-
-Acceptance:
-
-- Class and split statistics are exported.
-- Random visual samples have been manually reviewed.
-- Test set is locked.
-- No unsupported claim is made about the original dataset.
-
-### Phase 2: YOLOv8n baseline
-
-Tasks:
-
-- Train the first model in Google Colab.
-- Export all actual training artifacts.
-- Run validation and independent testing.
-- Inspect false positives and false negatives.
-
-Acceptance:
-
-- Training is reproducible from the notebook/script.
-- `best.pt` runs locally.
-- Metrics and failure examples are available.
-
-### Phase 3: Laptop inference application
-
-Tasks:
-
-- Implement modular webcam inference.
-- Add observation states, temporal filtering, overlays, and logs.
-- Add recorded-video test mode for repeatability.
-- Add unit tests for timing boundaries and unknown observations.
-
-Acceptance:
-
-- A violation shorter than the threshold does not create an incident.
-- A sustained valid violation creates exactly one incident.
-- One or two dropped frames do not necessarily reset the timer.
-- No person/invalid observation does not automatically trigger or appear safe.
-
-### Phase 4: Serial protocol and simulator
-
-Tasks:
-
-- Implement typed message encode/decode.
-- Build `tools/serial_mock.py` before hardware integration.
-- Add handshake, acknowledgement, heartbeat, timeout, retry, and reconnection.
-- Test malformed and duplicate messages.
-
-Acceptance:
-
-- Protocol tests pass.
-- Duplicate incident IDs do not duplicate actions.
-- Laptop recovers from temporary serial loss.
-- Malformed JSON does not crash either endpoint.
-
-### Phase 5: ESP32 hardware node
-
-Tasks:
-
-- Verify LEDs and buzzer one component at a time.
-- Implement the non-blocking alarm state machine.
-- Connect serial protocol.
-- Test silence, acknowledge, safe-clear eligibility, and reset rejection.
-
-Acceptance:
-
-- A violation latches red LED and buzzer.
-- Removal of the violation does not auto-clear the incident.
-- Silence stops only the buzzer.
-- Unsafe reset is rejected.
-- Safe, acknowledged, link-healthy reset succeeds.
-
-### Phase 6: Blynk integration
-
-Tasks:
-
-- Create template, datastreams, event, and mobile dashboard.
-- Implement notifications and commands.
-- Prevent duplicate event notifications.
-- Test Wi-Fi loss and recovery.
-
-Acceptance:
-
-- One incident creates one notification.
-- Dashboard commands map to the correct state transitions.
-- Wi-Fi loss does not disable local alarming.
-- Reconnection does not clear an unresolved incident.
-
-### Phase 7: Full integration
-
-Tasks:
-
-- Integrate camera, model, temporal filter, serial, ESP32, and Blynk.
-- Add health status and useful local overlay.
-- Run the complete scenario repeatedly.
-- Freeze package/configuration versions for the demo laptop.
-
-Acceptance:
-
-- At least 10 consecutive rehearsal cycles complete without manual code restart.
-- All event timestamps and states can be traced through logs.
-- Recovery from unplugged/replugged serial is demonstrated.
-
-### Phase 8: Formal experiments
-
-Tasks:
-
-- Execute the test matrix in Section 12.
-- Repeat quantitative trials.
-- Export raw results and compute summary statistics.
-- Save representative evidence.
-
-Acceptance:
-
-- Every reported number is traceable to raw data.
-- Mean, standard deviation, minimum, maximum, and success rate are reported where relevant.
-- Limitations and failed cases are retained.
-
-### Phase 9: Final demonstration and documentation
-
-Tasks:
-
-- Create `docs/demo_runbook.md`.
-- Prepare offline model, local dependencies, spare cables, and fallback recorded video.
-- Prepare architecture, state-machine, dataset, metric, and result diagrams for report/video.
-- Document generative-AI assistance and human verification.
-
-Acceptance:
-
-- Six-minute live demo fits the course limit.
-- Every team member can explain their own code and contributions.
-- No live demo step requires retraining or cloud inference.
+- JSONL event log.
+- CSV system-trial log.
+- Optional event image only when explicitly enabled.
+- No default continuous video recording.
 
 ---
 
-## 12. Formal Test Matrix
+## 3. Development Strategy
 
-Use at least 20 repetitions for the main quantitative cases where time permits. Do not claim a sample size that was not completed.
+### Core rule
 
-| Test ID | Scenario | Measurement | Pass intention |
-|---|---|---|---|
-| AI-01 | Independent labelled test set | Precision, recall, F1, mAP | Report actual values |
-| AI-02 | Bright/normal/dim lighting | Recall by condition | No hidden weak condition |
-| AI-03 | Front/left/right/down pose | Recall by pose | Report actual values |
-| AI-04 | Multiple people/goggles types | Success by subgroup | Generalisation evidence |
-| AI-05 | Ordinary glasses/sunglasses | False-positive rate | Minimise false compliance |
-| SYS-01 | Violation under 2 seconds | False trigger count | Target 0/20 |
-| SYS-02 | Sustained violation | Trigger success rate | Target at least 19/20 |
-| SYS-03 | End-to-end trigger latency | Mean, SD, min, max | Stable and explainable |
-| SYS-04 | Violation disappears after alarm | Latch retention | 20/20 retained |
-| SYS-05 | Silence command | Buzzer off, red retained | 20/20 correct |
-| SYS-06 | Acknowledge command | State changes, no safe claim | 20/20 correct |
-| SYS-07 | Reset while unsafe | Rejection rate | 20/20 rejected |
-| SYS-08 | Reset after safe-clear | Acceptance rate | 20/20 accepted if conditions met |
-| COM-01 | Malformed serial JSON | Crash/error behaviour | No crash; safe rejection |
-| COM-02 | Duplicate incident packet | Duplicate alarm/event | No duplicate incident |
-| COM-03 | Serial unplug/replug | Recovery time and state | Recover without clearing latch |
-| IOT-01 | Blynk event delivery | Delivery success/latency | Report actual values |
-| IOT-02 | Wi-Fi loss during alarm | Local alarm behaviour | Local alarm unaffected |
-| ROB-01 | Empty scene/no face | State behaviour | UNKNOWN, not false safe/violation |
-| ROB-02 | Camera unavailable | Fault indication | Visible fault; no false safe |
+Build a complete vertical slice early, then replace temporary parts with the real model and robust logic.
 
-For latency, record at least:
+A complete vertical slice means:
 
 ```text
-trial_id,violation_start_ts,confirmed_ts,serial_sent_ts,esp32_ack_ts,alarm_active_ts,total_latency_ms,result
+Temporary/manual test trigger
+    -> Python incident manager
+    -> JSON serial
+    -> ESP32 latched alarm
+    -> LEDs and buzzer
+    -> Blynk notification and controls
+    -> safe conditional reset
 ```
+
+This enables the full hardware and IoT workflow to be proven while dataset preparation and model training continue.
+
+### Do not do these before the prototype works
+
+- Do not spend days building a production-grade dataset analysis platform.
+- Do not create excessive unit tests for trivial getters or placeholders.
+- Do not optimise every parameter before full integration.
+- Do not create optional dashboards, multi-camera tracking, face recognition, or unrelated PPE functions.
+- Do not polish the final report before real measurements exist.
+- Do not use or test any 7B model.
 
 ---
 
-## 13. Automated Tests Required
+## 4. Repository Structure
 
-### `test_temporal_filter.py`
+Retain the existing repository. Reuse its verified Phase 0 environment, configuration, tests, and documentation.
 
-Cover:
+Expected important paths:
 
-- Exact threshold boundary.
-- Just below threshold.
-- Sustained violation.
-- Intermittent dropped observations.
-- Safe interruption.
-- Unknown observations.
+```text
+config/app.yaml
+config/classes.yaml
+data/raw/roboflow_safety_glasses_original.zip
+data/processed/
+models/best.pt
+src/main.py
+src/camera.py
+src/detector.py
+src/observations.py
+src/temporal_filter.py
+src/incident_manager.py
+src/serial_protocol.py
+src/serial_transport.py
+src/event_logger.py
+src/overlay.py
+src/health_monitor.py
+firmware/esp32_eye_shield_monitor/
+training/train_yolov8n.py
+training/evaluate_model.py
+training/colab_training.ipynb
+tests/
+tools/
+experiments/
+docs/
+```
+
+Do not redesign verified Phase 0 code unless an actual blocker is demonstrated.
+
+---
+
+## 5. Revised Phases
+
+## Phase 1: Minimum Necessary Dataset Audit
+
+### Purpose
+
+Establish whether the available Roboflow dataset can contribute useful goggles images and identify the minimum relabelling/data-collection work required. Do not turn this phase into a large standalone software project.
+
+### Required actions
+
+1. Verify ZIP integrity and calculate SHA-256.
+2. Read `data.yaml` and confirm class IDs.
+3. Count images and labels by train/validation/test split.
+4. Validate image-label pairs.
+5. Detect corrupt images and invalid YOLO rows.
+6. Count annotations by class and split.
+7. Check exact duplicate images across splits.
+8. Use a simple perceptual-hash check for obvious near-duplicate leakage.
+9. Produce representative annotation contact sheets, especially for `glasses`.
+10. Manually inspect whether `glasses` means safety goggles, ordinary glasses, sunglasses, or a mixture.
+11. Confirm that the source dataset has no direct `no_goggles` class.
+12. Recommend which source images can be reused and what new images are required.
+
+### Required outputs
+
+- `docs/dataset_audit.md`
+- `docs/annotation_guideline.md`
+- `data/reviewed/audit/dataset_summary.json`
+- `data/reviewed/audit/class_counts.csv`
+- `data/reviewed/audit/annotation_issues.csv`
+- `data/reviewed/audit/duplicates.csv`
+- `data/reviewed/audit/manual_review_queue.csv`
+- A small number of useful contact sheets in an ignored audit-artifacts directory.
+
+### Essential tests only
+
+Automated tests should cover:
+
+- Valid annotation.
+- Missing image or label.
+- Corrupt image.
+- Invalid class ID or coordinate.
+- Exact cross-split duplicate.
+- Deterministic outputs.
+- Original ZIP remains unchanged.
+
+Approximately 8 to 12 focused tests are sufficient. Do not chase a high test count.
+
+### Stop condition
+
+Phase 1 ends when the agent can state:
+
+- Which images are usable.
+- Whether manual relabelling is required.
+- How many new `no_goggles` and hard-negative images are needed.
+- Whether the existing split is trustworthy.
+
+Do not perform exhaustive statistical analysis that does not affect these decisions.
+
+---
+
+## Phase 2A: Hardware Bring-Up in Parallel
+
+This phase may begin as soon as the ESP32-S3 and modules are available. It does not depend on model training.
+
+### Actions
+
+1. Confirm Arduino IDE can compile and upload to the ESP32-S3.
+2. Identify the actual serial device on macOS.
+3. Test green LED GPIO11 independently.
+4. Test red LED GPIO12 independently.
+5. Test the passive buzzer GPIO14 using PWM/tone.
+6. Confirm active-high or active-low LED behaviour.
+7. Confirm module supply voltage and current requirements.
+8. Test red LED and buzzer together.
+9. Record wiring and verified output behaviour.
+
+### Acceptance
+
+- Each output works independently.
+- No GPIO is overloaded.
+- No long blocking delays are required.
+- The wiring diagram matches the actual hardware.
+
+---
+
+## Phase 2B: Dataset Construction and YOLOv8n Training
+
+### Dataset construction
+
+Create a two-class dataset using the same semantic box unit for both classes, preferably the sufficiently visible head/face region:
+
+- `goggles`
+- `no_goggles`
+
+Do not use tiny goggles-only boxes for one class and whole-person boxes for the other.
+
+Include:
+
+- Genuine laboratory/industrial safety goggles.
+- People without safety goggles.
+- Ordinary prescription glasses.
+- Sunglasses.
+- Face masks.
+- Face shields where relevant.
+- Front, side, and downward views.
+- Bright, ordinary, and dim lighting.
+- Different distances and backgrounds.
+- Empty scenes as negative images where supported by the training format.
+
+Practical starting target:
+
+- 500 to 800 reviewed images if achievable.
+- At least approximately 250 useful instances per class.
+- Three to five participants for self-collected data.
+- Two to three safety-goggle designs.
+
+If fewer images are available, proceed with a smaller honest prototype dataset and document the limitation. Do not invent data.
+
+### Split rule
+
+Create train/validation/test splits by participant, source video, or recording session where possible. Do not place adjacent frames from one video into different splits.
+
+Suggested split:
+
+- Train: 70%.
+- Validation: 20%.
+- Independent test: 10%.
+
+Lock the test set before final model tuning.
+
+### Training
+
+Primary formal training environment: Google Colab GPU.
+
+Local Apple Silicon MPS may be used for smoke tests and as a fallback.
+
+Baseline:
+
+- `yolov8n.pt`
+- Image size: 640.
+- Maximum approximately 100 epochs with early stopping.
+- Fixed recorded seed.
+- Batch size selected for available memory.
+- Save actual arguments, curves, confusion matrix, PR curves, and `best.pt`.
+
+### Evaluation
+
+Report actual:
+
+- Per-class precision.
+- Per-class recall.
+- Per-class F1.
+- mAP@0.5.
+- mAP@0.5:0.95.
+- Confusion matrix.
+- Representative false positives and false negatives.
+- Local inference FPS and latency.
+
+Targets are goals, not guaranteed results:
+
+- Precision at least 0.90.
+- Recall at least 0.85.
+- F1 at least 0.87.
+- mAP@0.5 at least 0.90.
+- At least 15 FPS on the final laptop.
+
+### Acceptance
+
+- `models/best.pt` loads locally without cloud inference.
+- Class IDs match `config/classes.yaml`.
+- Independent evaluation is reproducible.
+- Failures and limitations are retained, not hidden.
+
+---
+
+## Phase 3: Complete Laptop AI Application
+
+Implement real, working versions of:
+
+- `camera.py`
+- `detector.py`
+- `observations.py`
+- `temporal_filter.py`
+- `incident_manager.py`
+- `event_logger.py`
+- `overlay.py`
+- `health_monitor.py`
+- `main.py`
+
+### Required behaviour
+
+1. Open live webcam or a recorded test video.
+2. Load `models/best.pt`.
+3. Run YOLOv8n inference.
+4. Map detections to safe/violation/unknown observations.
+5. Apply the real-time 2-second filter.
+6. Create exactly one incident for a sustained violation.
+7. Display complete operator overlay.
+8. Log important transitions.
+9. Continue operating when no valid face/head observation exists, but display `UNKNOWN` rather than false safe.
+
+### Focused tests
+
+Test:
+
+- Just below 2.0 seconds.
+- At exactly/above the threshold.
 - Variable frame intervals.
+- Brief missed detections.
+- Safe interruption.
+- Unknown observation.
 - Clearance timer.
+- One incident per episode.
+- No new incident before reset.
 
-### `test_incident_manager.py`
+### Acceptance
 
-Cover:
-
-- One incident per violation episode.
-- Duplicate suppression.
-- No new incident before valid reset.
-- Reset eligibility rules.
-- Incident ID progression.
-
-### `test_serial_protocol.py`
-
-Cover:
-
-- Valid message round trips.
-- Missing required fields.
-- Wrong field types.
-- Oversized lines.
-- Malformed JSON.
-- Duplicate IDs.
-- Protocol-version mismatch.
-
-### Recorded-video integration test
-
-Use consented, non-private test clips to verify deterministic behaviour without depending on a live person. Keep the clips outside Git if large or sensitive, but document where to place them.
+- Short violation does not create an incident.
+- Sustained violation creates one incident.
+- Unknown does not become safe or violation automatically.
+- Recorded test video produces repeatable behaviour.
+- Live webcam inference is stable enough for demonstration.
 
 ---
 
-## 14. Configuration Requirements
+## Phase 4: Serial Protocol and Full ESP32 State Machine
 
-`config/app.example.yaml` should expose at least:
+### First integrate without YOLO
 
-```yaml
-camera:
-  index: 0
-  width: 1280
-  height: 720
+Use a manual trigger or `tools/serial_mock.py` to prove the complete serial/hardware workflow before connecting the AI output.
 
-model:
-  path: models/best.pt
-  image_size: 640
-  confidence_threshold: 0.55
-  iou_threshold: 0.45
+Example violation message:
 
-observation:
-  minimum_box_area_ratio: 0.01
-
-filter:
-  confirmation_seconds: 2.0
-  window_seconds: 2.0
-  violation_ratio: 0.80
-  clearance_seconds: 2.0
-
-serial:
-  port: auto
-  baudrate: 115200
-  heartbeat_seconds: 2.0
-  ack_timeout_seconds: 1.0
-  retry_count: 3
-
-logging:
-  directory: logs
-  save_event_images: false
+```json
+{"type":"violation","incident_id":1,"class":"no_goggles","confidence":0.91,"duration_ms":2100}
 ```
 
-All defaults must be validated and bounded. Invalid values must cause a concise startup error rather than silent unsafe behaviour.
+Expected ESP32 acknowledgement:
+
+```json
+{"type":"ack","incident_id":1,"state":"alarm_latched"}
+```
+
+### Required protocol
+
+Laptop to ESP32:
+
+- `hello`
+- `heartbeat`
+- `violation`
+- `safety_state`
+
+ESP32 to laptop:
+
+- `hello_ack`
+- `heartbeat_ack`
+- `ack`
+- `state`
+- `reset_result`
+- fault/status messages where needed
+
+### Acceptance
+
+- Valid violation latches red LED and buzzer.
+- Duplicate incident ID does not duplicate the incident.
+- Malformed JSON does not crash firmware.
+- Silence affects only the buzzer.
+- Acknowledge does not clear the incident.
+- Safe message does not automatically clear the incident.
+- Unsafe reset is rejected.
+- Serial unplug/replug recovers without clearing a latched incident.
 
 ---
 
-## 15. Definition of Done
+## Phase 5: Blynk Integration
 
-The project is complete only when all of the following are true:
+### Actions
 
-- The dataset provenance, licence, annotation rules, and split strategy are documented.
-- A custom YOLOv8n model is trained and independently evaluated.
-- The live application distinguishes safe, pending, violation, and unknown observations.
-- The two-second rule is based on real elapsed time.
-- An incident is transmitted using structured JSON and acknowledged by ESP32.
-- The hardware alarm remains latched after the person becomes safe or leaves view.
-- Silence, acknowledge, and reset produce distinct, correct effects.
-- Unsafe or communication-unhealthy reset attempts are rejected.
-- Blynk sends a notification and supports documented commands.
-- Local alarms remain functional without Blynk.
-- Faults such as camera loss, malformed JSON, serial loss, and Wi-Fi loss are tested.
-- AI and system results are recorded from real experiments.
-- The complete demonstration has passed at least 10 consecutive rehearsals.
-- Setup, testing, troubleshooting, AI usage, and limitations are documented.
-- No secret is stored in the submitted source code.
-- No 7B model has been used or tested.
+1. Create Blynk template and datastreams.
+2. Store Wi-Fi credentials and auth token in ignored firmware configuration.
+3. Report real ESP32 state to the dashboard.
+4. Send one notification per incident.
+5. Implement Silence, Acknowledge, and Reset.
+6. Return reset success/rejection status.
+7. Test Wi-Fi loss and reconnection.
 
----
+### Acceptance
 
-## 16. Recommended Six-Minute Demonstration Sequence
-
-1. Show architecture briefly and start the system in `SAFE` with green LED.
-2. Show correctly worn safety goggles and stable safe detection.
-3. Remove goggles for less than two seconds; show `PENDING` and no alarm.
-4. Sustain `no_goggles` for at least two seconds; show confirmed incident.
-5. Show red LED, buzzer, serial acknowledgement, and Blynk notification.
-6. Put goggles back on; show that the alarm remains latched.
-7. Press Silence; confirm buzzer stops while red remains.
-8. Press Acknowledge; confirm the incident remains unresolved.
-9. Attempt reset before safe-clear or under an unsafe condition; show rejection.
-10. Maintain safe observation for the clearance interval and reset successfully.
-11. If time permits, disconnect Wi-Fi or serial briefly to demonstrate controlled fault behaviour.
-12. End with measured AI and end-to-end results, not only a successful anecdote.
+- One incident creates one notification.
+- Duplicate serial packets do not duplicate notifications.
+- Commands create the correct state transitions.
+- Dashboard does not display false-safe state.
+- Local alarm remains operational without Blynk.
+- Reconnection does not clear an unresolved incident.
 
 ---
 
-## 17. Questions the Agent Must Be Able to Answer from the Code and Records
+## Phase 6: Full End-to-End Prototype Integration
 
-- Why is `no detection` not treated as `no_goggles`?
-- Why was YOLOv8n selected?
-- How were the two classes defined consistently?
-- How was train/test leakage prevented?
-- How was the confidence threshold selected?
-- Why is temporal filtering time-based instead of frame-count based?
-- What happens if the model misses one frame?
-- Why is the alarm owned and latched by the ESP32?
-- What is the difference between Silence, Acknowledge, and Reset?
-- What happens if Wi-Fi, Blynk, camera, or serial communication fails?
-- How are duplicate incidents prevented?
-- How was end-to-end latency measured?
-- What are the model's most important false-negative cases?
-- What limitations stop this PoC from being a certified production safety system?
+Connect the real pipeline:
+
+```text
+Webcam
+    -> YOLOv8n
+    -> temporal filter
+    -> incident manager
+    -> serial transport
+    -> ESP32 state machine
+    -> LEDs and buzzer
+    -> Blynk
+    -> human acknowledgement and conditional reset
+```
+
+### Required scenario
+
+1. System starts healthy in `SAFE`.
+2. Correct goggles maintain green safe state.
+3. Removal for less than 2 seconds shows pending but triggers no alarm.
+4. Sustained `no_goggles` creates an incident.
+5. Red LED, buzzer, serial acknowledgement, and Blynk notification activate.
+6. Wearing goggles again does not clear the latched alarm.
+7. Silence stops only the buzzer.
+8. Acknowledge records supervisor response.
+9. Reset before safe-clear is rejected.
+10. Reset after acknowledgement, safe-clear, and healthy link returns to `SAFE`.
+11. Camera, serial, and Wi-Fi faults produce controlled behaviour.
+
+### Prototype acceptance gate
+
+The feature-complete prototype must pass at least 10 consecutive complete cycles without manually restarting Python or the ESP32.
+
+Do not proceed to extensive formal experiments until this gate passes.
 
 ---
 
-## 18. Immediate First Execution Order
+## Phase 7: Essential Reliability and Formal Testing
 
-The AI development agent should begin in this exact order:
+After all features work, measure the system. Keep testing focused on report-worthy evidence.
 
-1. Create the repository structure and baseline documentation.
-2. Inspect the available dataset without modifying the locked test data.
-3. Draft `docs/annotation_guideline.md` and produce the class/split audit.
-4. Implement dataset inspection and duplicate-check tooling.
-5. Prepare the reproducible YOLOv8n training notebook and script.
-6. Train and evaluate a baseline only after the dataset gate passes.
-7. Build the laptop application with a mocked detector first.
-8. Unit-test temporal filtering and incident logic.
-9. Implement and test the serial protocol against a software mock.
-10. Bring up LEDs and buzzer separately on the ESP32-S3.
-11. Implement the ESP32 state machine and serial integration.
-12. Add Blynk only after local alarm behaviour is reliable.
-13. Run full integration, formal experiments, and repeated demo rehearsals.
+### AI tests
 
-At the end of every step, update:
+- Independent test-set metrics.
+- Bright, normal, and dim lighting.
+- Front, side, and downward pose.
+- Ordinary glasses and sunglasses.
+- Multiple distances.
+- Representative false positives and false negatives.
 
-- `README.md`
-- `docs/decision_log.md`
-- `docs/ai_usage_log.md`
-- Relevant tests
-- Relevant experiment records
+### System tests
 
-Do not move to the next stage while a critical acceptance gate is failing. Record the failure, diagnose it, make the smallest justified correction, and rerun the affected tests.
+Where practical, run 20 repetitions for key tests:
+
+| Test | Measurement |
+|---|---|
+| Violation under 2 seconds | False triggers |
+| Sustained violation | Trigger success rate |
+| End-to-end alarm | Mean, SD, minimum, maximum latency |
+| Alarm after visual recovery | Latch retention |
+| Silence | Buzzer off; red retained |
+| Acknowledge | Correct unresolved state |
+| Reset while unsafe | Rejection rate |
+| Valid reset | Acceptance rate |
+| Duplicate packet | Duplicate-event count |
+| Serial interruption | Recovery behaviour/time |
+| Wi-Fi interruption | Local-alarm continuity |
+| Camera unavailable | Fault state; no false safe |
+
+Every reported number must trace to raw CSV/JSONL records.
+
+---
+
+## Phase 8: Demonstration and Submission Readiness
+
+### Six-minute demonstration
+
+1. Briefly show architecture.
+2. Start in safe state.
+3. Show correct goggles detection.
+4. Remove goggles for less than 2 seconds.
+5. Sustain violation and trigger full alarm.
+6. Show Blynk notification.
+7. Restore goggles and prove alarm remains latched.
+8. Silence buzzer.
+9. Acknowledge incident.
+10. Demonstrate rejected unsafe/premature reset.
+11. Complete safe-clear and reset successfully.
+12. Present actual AI and system results.
+
+### Submission documentation
+
+Prepare:
+
+- Architecture diagram.
+- State-machine diagram.
+- Dataset source and licence attribution.
+- Annotation rules.
+- Training settings and actual metrics.
+- End-to-end test results.
+- Failure cases and limitations.
+- Source-code ZIP.
+- Hardware wiring.
+- Blynk configuration instructions.
+- AI usage disclosure.
+- Contribution statement.
+- Demo recovery checklist.
+
+---
+
+## 6. Priority Classification
+
+### P0: Must work before anything else
+
+- Webcam inference.
+- Real `goggles`/`no_goggles` model.
+- 2-second temporal filtering.
+- Incident creation and suppression.
+- Serial JSON.
+- ESP32 alarm latching.
+- Green/red LED behaviour.
+- Passive buzzer.
+- Silence/Acknowledge/conditional Reset.
+- Blynk notification and controls.
+- Fault-safe behaviour for camera, serial, and Wi-Fi.
+- End-to-end logging.
+
+### P1: Required for A/A+ evidence
+
+- Independent AI metrics.
+- Exact/near duplicate awareness and leakage-safe split.
+- False-positive and false-negative analysis.
+- FPS and latency.
+- Repeated system trials.
+- Clear limitations.
+- Ten consecutive demo rehearsals.
+
+### P2: Only after P0 and P1 pass
+
+- More polished UI.
+- Additional visual charts.
+- Additional dataset tooling.
+- Model/export format comparisons.
+- Optional state persistence across ESP32 power loss.
+- Additional notification channels.
+
+---
+
+## 7. Agent Working Rules
+
+1. Read this file before each new phase.
+2. Work on one phase or explicitly approved parallel phase at a time.
+3. Produce working code, not only plans or placeholders.
+4. Run the smallest meaningful tests after each change.
+5. Do not claim hardware success without physical test evidence from the user or captured serial output.
+6. Do not claim model metrics without real evaluation output.
+7. Do not fabricate screenshots, notifications, latency, or experiment results.
+8. Preserve working components; prefer small changes over large rewrites.
+9. Keep secrets out of Git.
+10. Update `docs/decision_log.md` only for material decisions.
+11. Update `docs/ai_usage_log.md` with meaningful AI-assisted work and human verification.
+12. Report blockers immediately and state exactly what physical action the user must perform.
+13. Do not spend time maximising test counts. Test safety-critical transitions and likely failure modes.
+14. Do not use or test any 7B model.
+
+---
+
+## 8. Definition of Feature-Complete Prototype
+
+The prototype is feature-complete only when:
+
+- A custom YOLOv8n model runs locally.
+- Live webcam inference distinguishes `goggles`, `no_goggles`, and insufficient evidence.
+- Sustained violation filtering works using elapsed time.
+- Short violations are rejected.
+- One incident produces one serial alert and one Blynk notification.
+- ESP32 latches the physical alarm.
+- Alarm remains after the visual scene becomes safe.
+- Silence stops only the buzzer.
+- Acknowledge does not falsely show safe.
+- Reset is rejected until all safety conditions pass.
+- A valid reset returns the system to green safe state.
+- Serial interruption does not erase the incident.
+- Wi-Fi/Blynk interruption does not stop local alarming.
+- Camera failure does not display false safe.
+- Event logs permit the incident timeline to be reconstructed.
+- Ten consecutive full demonstration cycles pass without a software or firmware restart.
+
+---
+
+## 9. Immediate Instruction to the AI Agent
+
+Continue from the repository's present state.
+
+If the current Phase 1 audit is still running, finish only the minimum outputs required by Phase 1 of this revised plan. Do not add more optional analyses, contact sheets, output formats, or tests once the required decisions can be made.
+
+Then report:
+
+- Current completed audit findings.
+- Remaining essential Phase 1 work only.
+- Any human review required.
+- Recommended final two-class dataset construction work.
+- Exact files changed.
+- Tests run.
+- Commit hash.
+- Whether Phase 2A hardware bring-up and Phase 2B dataset/model work can begin.
+
+After approval, prioritise the complete feature path in this order:
+
+```text
+minimum dataset decision
+-> hardware bring-up in parallel
+-> final two-class dataset
+-> YOLOv8n training
+-> complete laptop AI application
+-> serial and ESP32 state machine
+-> Blynk
+-> full end-to-end integration
+-> formal testing
+-> demo and submission
+```
+
+The target is a complete, reliable prototype with every proposed core feature working, not a reduced MVP and not an over-engineered production platform.

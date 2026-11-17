@@ -138,3 +138,111 @@ The near-duplicate threshold (Hamming <= 10 on a 64-bit dHash) is a judgement
 call, not a calibrated value. It is exposed as `--near-dup-bits` so a human can
 re-run with a different bound. The 377 figure should be read as "many frames are
 near-identical, consistent with video sampling", not as a defect count.
+
+---
+
+# Phase 2A — Hardware bring-up: AI usage record
+
+## Entry
+
+```text
+Date:            2026-11-17
+Phase:           2A — Hardware bring-up (firmware self-test only)
+Tool/agent:      GitHub Copilot CLI (agent mode)
+Task requested:  Minimal ESP32-S3 firmware self-test driving green LED GPIO11,
+                 red LED GPIO12 and passive buzzer GPIO14, with a serial command
+                 menu, non-blocking millis() timing, and configurable
+                 active-high/active-low polarity. No Blynk, no YOLO, no JSON
+                 protocol, no 7B model, no trivial-code tests.
+Files affected:  firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino (new)
+                 firmware/esp32_eye_shield_monitor/config.example.h (new)
+                 firmware/esp32_eye_shield_monitor/README.md (rewritten)
+                 docs/hardware_bringup.md (new)
+                 docs/decision_log.md (D-014, D-015, D-016; O-02 phase updated)
+                 docs/ai_usage_log.md (this entry)
+                 docs/dataset_audit.md, data/README.md, README.md,
+                 docs/annotation_guideline.md (Phase 1 provenance correction only)
+Output accepted as-is / modified / rejected: accepted after two AI self-corrections
+                 described below; no human hardware verification yet.
+How it was verified: arduino-cli compile for esp32:esp32:esp32s3 (esp32 core
+                 3.3.11) — pass, 315,765 bytes (24 %) flash / 22,296 bytes (6 %)
+                 RAM; re-compiled with --warnings all — no warnings; re-compiled
+                 with a local config.h override — pass; git check-ignore confirmed
+                 config.h is ignored and config.example.h is trackable.
+                 NO physical output has been observed.
+Team reviewer:   PENDING — requires the human hardware test in
+                 docs/hardware_bringup.md §6 and the filled-in §9 record.
+```
+
+## Phase 1 documentation correction (the only Phase 1 change made)
+
+Two corrections were requested and applied; no audit feature, test, CSV,
+duplicate analysis, or contact sheet was added, and `tools/inspect_dataset.py`
+and `tests/test_inspect_dataset.py` were not touched.
+
+1. **Provenance is recorded, not blocking.** `docs/dataset_audit.md` §1 now
+   states: original source `workspace-3vzwb/safety-glasses-dataset`, fork/export
+   workspace `eie3360-fwbnu`, licence CC BY 4.0, and that this is **not a
+   blocker** requiring no re-download or new fork. §15/§16, `data/README.md`,
+   `README.md` §9 and `docs/annotation_guideline.md` §6 were aligned, and
+   decision **D-014** records the reasoning.
+2. **No cut-out claim from geometry alone.** `docs/dataset_audit.md` §7 now
+   says the small eyewear-level boxes are **incompatible with the proposed
+   head/face-region compliance labels** and that the semantic content **requires
+   human visual review**. The previous "consistent with tight product cut-outs"
+   inference was removed, since bounding-box statistics cannot establish what an
+   image depicts.
+
+## Two errors the AI made and corrected before reporting
+
+**1. Unreachable self-test states.** The first sequencer used a nested switch over
+an enum with eight states plus `ST_GREEN_OFF`, `ST_RED_OFF`, `ST_BUZZER_OFF` and
+`ST_COMBINED_OFF` entries that no transition ever entered, and several cases
+advanced to a state whose label did not match the outputs it had just set. The
+sequence was rewritten as a flat table where each entry states the **complete**
+desired output combination. That removes the class of bug entirely: a step can no
+longer leave a stale output energised, and reordering is a one-line change.
+
+**2. `digitalWrite()` on an LEDC-owned pin.** The first buzzer silence routine
+called `ledcWrite(channel, 0)` and then `digitalWrite(pin, inactive)`. The second
+call does not reliably change the level, because the LEDC peripheral mux still
+owns the pin. Fixed by detaching from LEDC (`ledcDetach` / `ledcDetachPin`)
+**before** parking the pin. Both core 2.x and 3.x APIs are handled behind an
+`ESP_ARDUINO_VERSION_MAJOR` branch.
+
+## Claims the AI made and how each was checked
+
+| Claim | Check |
+|---|---|
+| The sketch compiles for the ESP32-S3 | `arduino-cli compile --fqbn esp32:esp32:esp32s3` — pass, exit 0 |
+| No compiler warnings | same compile with `--warnings all` — clean |
+| A local `config.h` override still compiles | compiled with a generated `config.h` altering a pin and a polarity — pass |
+| `config.h` cannot be committed by accident | `git check-ignore -v` resolves it to `.gitignore:20`; `git status` shows it untracked-and-ignored |
+| No board entry named "ESP32-S3 UNO" exists | `arduino-cli board listall` piped through grep — only generic `esp32s3` targets present |
+| esp32 core version is 3.3.11 | listed `~/Library/Arduino15/packages/esp32/hardware/esp32/` |
+
+## What the AI did NOT do
+
+- Did **not** claim that any LED, the buzzer, or any pin works. No physical
+  observation exists.
+- Did **not** invent a macOS serial device path. No ESP32 board was attached to
+  this Mac during the work (`/dev/cu.*` held only Bluetooth pseudo-ports), so
+  §3 of `docs/hardware_bringup.md` documents the *procedure* and leaves the value
+  for the human to record.
+- Did **not** implement Blynk, Wi-Fi, YOLO, the JSON serial protocol, incident
+  IDs, the alarm state machine, or Silence/Acknowledge/Reset.
+- Did **not** use or test any 7B model.
+- Did **not** add automated tests for this firmware.
+- Did **not** commit `config.h`, any credential, or any machine-specific value.
+- Did **not** restart or expand Phase 1.
+
+## Residual uncertainty (for the human to resolve)
+
+1. The board's actual pin silkscreen — GPIO11/12/14 are assumed exposed.
+2. LED module polarity — defaulted active-high; observable in one `SELF_TEST` run.
+3. Buzzer type — a passive piezo is assumed. An active buzzer would sound
+   continuously and ignore the PWM frequency.
+4. Module supply voltage — 3.3 V vs 5 V variants exist and are not
+   interchangeable.
+5. The macOS serial device path and bridge chip — unknown until the board is
+   plugged in.
