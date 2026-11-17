@@ -38,17 +38,27 @@ files, assumptions, tests, and blockers. Stop before Phase 1.
 - Created `.venv` with Python 3.12.4 and installed the pinned dependency set.
 
 **Verification actually performed:**
-- `pip install -r requirements.txt` completed with exit code 0.
-- `python -c "import cv2, yaml, serial, dotenv, pytest, numpy, torch"` succeeded.
+- `pip install -r requirements.txt` completed with exit code 0, in the working tree
+  and again in a fresh `git clone` into a temporary directory.
+- `tools/env_check.py` → `Environment check OK: 5 passed, 1 warning(s), 0 failure(s)`.
+- `python -m pytest -q` → `108 passed`.
+- `tools/camera_check.py` → `Camera check PASSED.`, 29.9–30.1 FPS at 1280×720.
 - Ultralytics smoke test: YOLOv8n architecture constructed and ran a forward pass
   on a synthetic 640×640 image, returning 0 detections.
-- `tools/env_check.py` run before and after the docs were written.
-- `python -m pytest` run against `tests/test_config.py`.
+- Two deliberate failure paths: missing `config/app.yaml` (readable `FAIL`, exit 1)
+  and camera index that does not exist (readable `ERROR`, exit 1).
+
+**Defects this verification caught (and corrected):**
+- `serial.port` was silently coerced instead of validated; a blank or non-string
+  value could have triggered unintended autodiscovery (`src/config.py`).
+- `tools/env_check.py` printed `python-dotenv==?` while still passing, because that
+  package has no `__version__`; it now reads installed metadata.
+- `.gitignore` allowed verified-bad re-inclusions and never ignored `*.jpg`;
+  model weights were briefly re-included by a negation, contradicting plan §4.
+- `tools/camera_check.py` printed a mojibake FOURCC (`'ÿÿÿÿ'`) on macOS.
 
 **Not verified (and therefore not claimed):**
 - No model weights exist; no inference accuracy is measured or claimed.
-- Camera capture was exercised only if a camera was present at run time; see the
-  phase report for the actual result.
 - No ESP32, Blynk, or serial-hardware behaviour has been tested.
 
 **Team action required:** Each team member must read the source files they will

@@ -22,6 +22,33 @@ These are the checks the Phase 0 gate is judged against. Run them in order.
 `ENV-03` needs a physical camera and therefore cannot run headless; the automated
 suite skips it and the result is recorded manually in the phase report.
 
+### Recorded run — Phase 0 gate (2026-11-17)
+
+Environment: Apple M2 (arm64), macOS, Python 3.12.4 from `/opt/homebrew/bin/python3.12`,
+`.venv` with the pinned `requirements.txt`. Both the working tree and a fresh
+`git clone` into `/tmp` were tested; the results below are identical for both.
+
+| ID | Result | Evidence |
+|---|---|---|
+| ENV-01 | **PASS** | Clean clone + fresh venv + `pip install -r requirements.txt` exited 0 with no build errors (torch 2.15.0, torchvision 0.29.2, opencv-python 5.0.0.93, ultralytics 8.4.215 wheels installed) |
+| ENV-02 | **PASS** | `Environment check OK: 5 passed, 1 warning(s), 0 failure(s)`, exit 0. The single warning is the intentionally absent `models/best.pt` |
+| ENV-03 | **PASS** | `Camera 0 opened (native 1280x720, codec n/a)`, `Captured 10/10 frames at 1280x720: 29.9 FPS (mean interval 33.5 ms)`, `Camera check PASSED.`, exit 0 |
+| CFG-01 | **PASS** | `108 passed` (`tests/test_config.py`), exit 0 |
+| CFG-02 | **PASS** | `pytest tests/test_config.py -k bounds` — every case raises `ConfigError` naming the section and key |
+| SEC-01 | **PASS** | `git ls-files` lists no `.env`, `config/app.yaml`, or `config.h`; `git check-ignore -v` confirms each is matched by an ignore rule |
+
+Two failure paths were exercised deliberately, not assumed:
+
+- `tools/env_check.py` in a fresh clone with no `config/app.yaml` prints
+  `FAIL Configuration: config/app.yaml is absent (...). This is REQUIRED for the
+  application; create it with: cp config/app.example.yaml config/app.yaml` and
+  exits 1. A fresh user therefore gets a readable instruction, not a traceback.
+- `tools/camera_check.py --index 9` prints
+  `ERROR: could not open camera index 9.` plus remediation hints and exits 1.
+
+Not covered by this run: any behaviour requiring `models/best.pt`, an ESP32, a
+serial link, or Blynk. Those belong to Phases 2–6 and no claim is made about them.
+
 ## Future test matrix (from plan.md §12)
 
 Not yet executed. Listed so later phases report against fixed IDs.

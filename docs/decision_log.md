@@ -73,6 +73,39 @@ committing `data/splits/*.csv|json|yaml` and folder READMEs.
 **Why:** Plan §4 forbids committing private raw images. The split manifest and
 class statistics are small text records that must be auditable and reproducible.
 
+## D-008 — Later-phase modules are honest stubs, not silent no-ops
+
+**Date:** 2026-11-17 (Phase 0)
+**Decision:** Every file from plan §4 that belongs to a later phase exists, but
+contains only a module docstring, a `PHASE` constant, and no behaviour.
+**Why:** Plan §4 requires the structure, while plan §18 forbids implementing ahead
+of the gate. An empty file would look implemented; a stub that documents its phase
+cannot mislead a reader or a marker into thinking the feature exists.
+**Revisit if:** never — each stub is replaced by the real implementation in its phase.
+
+## D-009 — `serial.port` is validated, never coerced
+
+**Date:** 2026-11-17 (Phase 0)
+**Decision:** A non-string or blank `serial.port` raises `ConfigError`; only the
+literal `"auto"` triggers autodiscovery.
+**Why:** The first implementation used `str(value).strip() or "auto"`, which
+silently converted `1234` to `"1234"` and a blank string to autodiscovery. Silent
+autodiscovery could open a different device than the operator intended — a real
+safety defect, found by a test rather than in the lab.
+**Revisit if:** a platform needs a non-path port selector; add it explicitly.
+
+## D-010 — Environment check reads versions from installed metadata
+
+**Date:** 2026-11-17 (Phase 0)
+**Decision:** `tools/env_check.py` reports versions via `importlib.metadata` rather
+than module `__version__` attributes.
+**Why:** `python-dotenv` has no `__version__`, so the first implementation printed
+`python-dotenv==?` while still reporting PASS. A check that degrades quietly to
+`?` cannot be trusted to detect a broken pin.
+**Revisit if:** a package is importable but not installed as a distribution
+(direct-path install); then the check reports `unknown (distribution not found)`
+rather than a false version.
+
 ---
 
 ## Open decisions (to be recorded when resolved)

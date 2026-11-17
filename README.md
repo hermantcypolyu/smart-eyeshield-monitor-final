@@ -115,6 +115,12 @@ Secrets (`BLYNK_AUTH_TOKEN`, Wi-Fi, Roboflow keys) never enter source control:
 | [experiments/](./experiments) | Machine-readable experiment records (AI metrics, system trials) |
 | [docs/](./docs) | Architecture, protocol, test plan, runbook, decision log, AI usage log |
 
+Files under `src/`, `training/`, and some of `tools/` that belong to later phases
+exist now as **documented stubs**: a docstring naming the phase, a `PHASE`
+constant, and no behaviour. They are placeholders for the structure required by
+plan §4, not partial implementations. Only `src/config.py`, `tools/env_check.py`,
+and `tools/camera_check.py` contain working code in Phase 0.
+
 ## 6. Current phase status
 
 | Phase | Name | Status |
@@ -137,8 +143,11 @@ none are claimed.
 
 - [docs/architecture.md](./docs/architecture.md) — component boundaries and ownership
 - [docs/protocol.md](./docs/protocol.md) — serial JSON schema
+- [docs/annotation_guideline.md](./docs/annotation_guideline.md) — two-class labelling rules
 - [docs/test_plan.md](./docs/test_plan.md) — Phase 0 checks and future test matrix
 - [docs/troubleshooting.md](./docs/troubleshooting.md) — common setup failures
+- [docs/blynk_setup.md](./docs/blynk_setup.md) — mobile dashboard (Phase 6 placeholder)
+- [docs/demo_runbook.md](./docs/demo_runbook.md) — six-minute demo (Phase 9 placeholder)
 - [docs/decision_log.md](./docs/decision_log.md) — recorded engineering decisions
 - [docs/ai_usage_log.md](./docs/ai_usage_log.md) — generative-AI assistance record
 
