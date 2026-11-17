@@ -108,6 +108,36 @@ rather than a false version.
 
 ---
 
+## D-011 — The source archive is audited, never repaired
+
+The Phase 1 export is rejected for training rather than patched in place. The
+auditor reports facts and a human-review queue; it does not rename `glasses` to
+`goggles`, does not infer `no_goggles` from an unannotated frame, and does not
+rewrite splits. Rationale: each of those repairs encodes a semantic decision
+about the safe/violation definition that must be made and recorded by a human,
+and a silent remap would produce a model trained on the wrong concept. The
+verdict is therefore `rejected_for_training` with five blocking findings listed
+in `docs/dataset_audit.md` §15.
+
+## D-012 — dHash and quantiles are implemented locally, not vendored
+
+`imagehash` and `scipy` are not in the pinned dependency set, so near-duplicate
+detection uses a hand-rolled 64-bit dHash over `cv2` and `numpy`, and quantiles
+are computed directly. Rationale: adding two dependencies for a read-only audit
+would widen the install surface of the whole project for no gain, and the pinned
+set is already fixed by D-002. The trade-off is documented in the module
+docstring; the hash is only used to *rank* candidates for human review, never to
+make an automatic decision.
+
+## D-013 — Audit records are committed; rendered contact sheets are not
+
+`data/reviewed/audit/*.json` and `*.csv` are tracked so the audit is reviewable
+and diffable. The contact sheets under `data/reviewed/audit/artifacts/` are
+git-ignored because they are rendered dataset imagery. This required explicit
+negations in `.gitignore`, since the blanket `data/**/*.json` and `data/**/*.csv`
+rules would otherwise have excluded every audit record — a trap that is easy to
+reintroduce, so the negation lines carry a warning comment.
+
 ## Open decisions (to be recorded when resolved)
 
 | ID | Question | Earliest phase |

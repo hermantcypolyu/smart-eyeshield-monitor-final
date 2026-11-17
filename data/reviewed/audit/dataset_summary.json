@@ -1,0 +1,353 @@
+{
+  "blocking_findings": [
+    "required class(es) absent from data.yaml: goggles, no_goggles",
+    "data.yaml declares 5 classes; the project scheme is exactly 2 (goggles / no_goggles)",
+    "59 split-leakage group(s) present",
+    "test split holds 4.25% of images; plan section 5.5 requires about 10%",
+    "2 malformed annotation row(s)"
+  ],
+  "class_audit": [
+    {
+      "class_id": 0,
+      "class_name": "boots",
+      "images_containing": 1,
+      "in_required_scheme": false,
+      "instances_test": 0,
+      "instances_total": 1,
+      "instances_train": 1,
+      "instances_valid": 0,
+      "median_area_ratio": 0.010329,
+      "median_aspect": 0.7927,
+      "reaches_target_instances": false,
+      "share_under_min_area": 1.0
+    },
+    {
+      "class_id": 1,
+      "class_name": "glasses",
+      "images_containing": 397,
+      "in_required_scheme": false,
+      "instances_test": 17,
+      "instances_total": 435,
+      "instances_train": 337,
+      "instances_valid": 81,
+      "median_area_ratio": 0.00636,
+      "median_aspect": 1.8571,
+      "reaches_target_instances": true,
+      "share_under_min_area": 0.7885
+    },
+    {
+      "class_id": 2,
+      "class_name": "gloves",
+      "images_containing": 134,
+      "in_required_scheme": false,
+      "instances_test": 9,
+      "instances_total": 212,
+      "instances_train": 124,
+      "instances_valid": 79,
+      "median_area_ratio": 0.017683,
+      "median_aspect": 0.9172,
+      "reaches_target_instances": false,
+      "share_under_min_area": 0.6085
+    },
+    {
+      "class_id": 3,
+      "class_name": "helmet",
+      "images_containing": 25,
+      "in_required_scheme": false,
+      "instances_test": 5,
+      "instances_total": 27,
+      "instances_train": 19,
+      "instances_valid": 3,
+      "median_area_ratio": 0.117577,
+      "median_aspect": 1.582,
+      "reaches_target_instances": false,
+      "share_under_min_area": 0.037
+    },
+    {
+      "class_id": 4,
+      "class_name": "vest",
+      "images_containing": 94,
+      "in_required_scheme": false,
+      "instances_test": 5,
+      "instances_total": 95,
+      "instances_train": 53,
+      "instances_valid": 37,
+      "median_area_ratio": 0.067184,
+      "median_aspect": 0.7429,
+      "reaches_target_instances": false,
+      "share_under_min_area": 0.0105
+    }
+  ],
+  "compliance_mapping": {
+    "decision": "unmapped_pending_human_review",
+    "note": "No source class maps to the project's safe/violation decision. The tool deliberately does not propose one: that requires human verification of individual images (plan.md sections 5.2-5.3).",
+    "per_class": {
+      "boots": "unmapped",
+      "glasses": "unmapped",
+      "gloves": "unmapped",
+      "helmet": "unmapped",
+      "vest": "unmapped"
+    }
+  },
+  "duplicates": {
+    "exact_groups": 0,
+    "exact_hash": "sha256",
+    "hash_side": 8,
+    "near_hash": "dhash64_row",
+    "near_pairs": 377,
+    "near_threshold_bits": 10
+  },
+  "generated_at_utc": "2026-11-17T13:32:52+00:00",
+  "has_no_goggles_class": false,
+  "image_dimensions": [
+    {
+      "count": 149,
+      "height": 640,
+      "width": 640
+    },
+    {
+      "count": 111,
+      "height": 860,
+      "width": 860
+    },
+    {
+      "count": 54,
+      "height": 1280,
+      "width": 1080
+    },
+    {
+      "count": 33,
+      "height": 416,
+      "width": 416
+    },
+    {
+      "count": 31,
+      "height": 408,
+      "width": 612
+    },
+    {
+      "count": 2,
+      "height": 275,
+      "width": 183
+    },
+    {
+      "count": 2,
+      "height": 225,
+      "width": 225
+    },
+    {
+      "count": 1,
+      "height": 265,
+      "width": 190
+    },
+    {
+      "count": 1,
+      "height": 260,
+      "width": 194
+    },
+    {
+      "count": 1,
+      "height": 241,
+      "width": 209
+    },
+    {
+      "count": 1,
+      "height": 192,
+      "width": 263
+    },
+    {
+      "count": 1,
+      "height": 183,
+      "width": 275
+    },
+    {
+      "count": 1,
+      "height": 500,
+      "width": 500
+    },
+    {
+      "count": 1,
+      "height": 360,
+      "width": 541
+    },
+    {
+      "count": 1,
+      "height": 323,
+      "width": 612
+    },
+    {
+      "count": 1,
+      "height": 410,
+      "width": 612
+    },
+    {
+      "count": 1,
+      "height": 411,
+      "width": 612
+    },
+    {
+      "count": 1,
+      "height": 459,
+      "width": 612
+    },
+    {
+      "count": 1,
+      "height": 476,
+      "width": 612
+    },
+    {
+      "count": 1,
+      "height": 257,
+      "width": 659
+    },
+    {
+      "count": 1,
+      "height": 337,
+      "width": 820
+    },
+    {
+      "count": 1,
+      "height": 859,
+      "width": 840
+    },
+    {
+      "count": 1,
+      "height": 388,
+      "width": 860
+    },
+    {
+      "count": 1,
+      "height": 565,
+      "width": 860
+    },
+    {
+      "count": 1,
+      "height": 1920,
+      "width": 1920
+    }
+  ],
+  "leakage": {
+    "action_taken": "none - reported only, splits were not modified",
+    "group_count": 59,
+    "kinds": [
+      "adjacent_frame_group_across_splits",
+      "near_duplicate_across_splits",
+      "source_stem_across_splits"
+    ]
+  },
+  "metadata": {
+    "class_count": 5,
+    "class_names": [
+      "boots",
+      "glasses",
+      "gloves",
+      "helmet",
+      "vest"
+    ],
+    "declared_test": "../test/images",
+    "declared_train": "../train/images",
+    "declared_val": "../valid/images",
+    "readme_first_line": "",
+    "roboflow": {
+      "license": "CC BY 4.0",
+      "project": "safety-glasses-dataset-zyrcw",
+      "url": "https://universe.roboflow.com/eie3360-fwbnu/safety-glasses-dataset-zyrcw/dataset/1",
+      "version": 1,
+      "workspace": "eie3360-fwbnu"
+    }
+  },
+  "missing_required_classes": [
+    "goggles",
+    "no_goggles"
+  ],
+  "parameters": {
+    "min_box_area_ratio": 0.02,
+    "near_dup_bits": 10,
+    "seed": 1337,
+    "target_max_images": 800,
+    "target_min_images": 500,
+    "target_min_instances_per_class": 250,
+    "target_test_share": 0.1
+  },
+  "phase": 1,
+  "record_type": "dataset_summary",
+  "required_classes": [
+    "goggles",
+    "no_goggles"
+  ],
+  "source": {
+    "archive_member_count": 805,
+    "data_yaml_member": "data.yaml",
+    "duplicate_archive_members": [
+      "data.yaml"
+    ],
+    "readme_dataset_member": "README.dataset.txt",
+    "readme_roboflow_member": "README.roboflow.txt",
+    "zip_filename": "roboflow_safety_glasses_original.zip",
+    "zip_sha256": "39afc3ac747c281e6165732f82f512fb6fcbbe15f0a0e7d58015d901c3e2cf53",
+    "zip_size_bytes": 25717848
+  },
+  "split_shares": {
+    "test": 0.0425,
+    "train": 0.7525,
+    "valid": 0.205
+  },
+  "splits": {
+    "test": {
+      "images": 17,
+      "images_ok": 17,
+      "instances": 36,
+      "label_files_empty": 0,
+      "labels": 17,
+      "malformed_rows": 0,
+      "missing_labels": 0,
+      "orphan_labels": 0
+    },
+    "train": {
+      "images": 301,
+      "images_ok": 301,
+      "instances": 534,
+      "label_files_empty": 1,
+      "labels": 301,
+      "malformed_rows": 1,
+      "missing_labels": 0,
+      "orphan_labels": 0
+    },
+    "valid": {
+      "images": 82,
+      "images_ok": 82,
+      "instances": 200,
+      "label_files_empty": 0,
+      "labels": 82,
+      "malformed_rows": 1,
+      "missing_labels": 0,
+      "orphan_labels": 0
+    }
+  },
+  "suitability": {
+    "as_starting_source": "not_usable",
+    "for_annotation_unit_plan_section_5_3": "not_usable",
+    "for_two_class_scheme": "not_usable",
+    "reason": "Source classes and annotation unit do not express the required goggles / no_goggles decision over a visible head region."
+  },
+  "totals": {
+    "empty_label_files": 1,
+    "exact_duplicate_groups": 0,
+    "images": 400,
+    "images_ok": 400,
+    "instances": 770,
+    "label_files": 400,
+    "leakage_groups": 59,
+    "malformed_rows": 2,
+    "manual_review_rows": 400,
+    "near_duplicate_pairs": 377
+  },
+  "verdict": "rejected_for_training",
+  "warnings": [
+    "400 images is below the plan section 5.4 target of 500-800",
+    "class 'boots' has 1 instances; target is at least 250",
+    "class 'gloves' has 212 instances; target is at least 250",
+    "class 'helmet' has 27 instances; target is at least 250",
+    "class 'vest' has 95 instances; target is at least 250"
+  ]
+}

@@ -144,6 +144,7 @@ none are claimed.
 - [docs/architecture.md](./docs/architecture.md) — component boundaries and ownership
 - [docs/protocol.md](./docs/protocol.md) — serial JSON schema
 - [docs/annotation_guideline.md](./docs/annotation_guideline.md) — two-class labelling rules
+- [docs/dataset_audit.md](./docs/dataset_audit.md) — Phase 1 audit of the source export (verdict: rejected for training)
 - [docs/test_plan.md](./docs/test_plan.md) — Phase 0 checks and future test matrix
 - [docs/troubleshooting.md](./docs/troubleshooting.md) — common setup failures
 - [docs/blynk_setup.md](./docs/blynk_setup.md) — mobile dashboard (Phase 6 placeholder)

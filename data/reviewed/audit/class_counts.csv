@@ -1,0 +1,7 @@
+class_id,class_name,in_required_scheme,instances_total,instances_train,instances_valid,instances_test,images_containing,median_area_ratio,median_aspect,share_under_min_area,reaches_target_instances,compliance_decision
+0,boots,False,1,1,0,0,1,0.010329,0.7927,1.0,False,unmapped_pending_human_review
+1,glasses,False,435,337,81,17,397,0.00636,1.8571,0.7885,True,unmapped_pending_human_review
+2,gloves,False,212,124,79,9,134,0.017683,0.9172,0.6085,False,unmapped_pending_human_review
+3,helmet,False,27,19,3,5,25,0.117577,1.582,0.037,False,unmapped_pending_human_review
+4,vest,False,95,53,37,5,94,0.067184,0.7429,0.0105,False,unmapped_pending_human_review
+,__SPLIT_TOTALS__,,770,534,200,36,,,,,,

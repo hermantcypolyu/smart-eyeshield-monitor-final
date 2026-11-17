@@ -76,3 +76,47 @@ Not yet executed. Listed so later phases report against fixed IDs.
 Every number reported for this project must be traceable to a raw record in
 `experiments/` or a test run captured in this document. Results are never rounded
 up, and failed cases are retained alongside successful ones.
+
+---
+
+# Phase 1 — Dataset audit tests
+
+Phase 1 adds `tests/test_inspect_dataset.py`: 23 tests, all over synthetic
+fixtures generated inside `tmp_path` at run time. No test opens the real source
+archive, so the suite runs offline and reads no licensed imagery.
+
+Full suite after Phase 1: **131 passed** (108 Phase 0 + 23 Phase 1).
+
+## What is covered
+
+| Area | Behaviour asserted |
+|---|---|
+| Read-only | Source ZIP is byte-identical and keeps its mtime after an audit; nothing is written beside it |
+| Invalid input | Missing path, non-ZIP file, missing `data.yaml`, and `nc != len(names)` each raise a readable `AuditInputError`; CLI exits 2 with `ERROR:` and no traceback |
+| Annotations | 9-field polygon row → blocking error; out-of-range coords flagged; empty label file is a warning only; unknown class id flagged |
+| Pairing | Image without label reported; orphan label reported; **two exports of one source stem pair to their own labels** (regression guard for the exact-stem bug) |
+| Duplicates | Byte-identical images produce exactly one exact-duplicate group |
+| Leakage | A shared source stem across splits is reported as `source_stem_across_splits` |
+| Class scheme | 5-class PPE export reports `goggles`/`no_goggles` missing and verdict `rejected_for_training` |
+| Compliance | No class is auto-mapped; decision stays `unmapped_pending_human_review` |
+| Determinism | Two runs with the same seed agree byte-for-byte after masking timestamps |
+| Outputs | All 13 records are written |
+| CLI guards | `--strict-fail` exits 3 on blocking findings; out-of-range `--near-dup-bits` and an `--artifacts` path inside `data/raw/` are both refused with exit 2 |
+
+## Two bugs these tests caught
+
+Both were found by running the tests, not by inspection:
+
+1. `zipfile.ZipFile(path, "rb")` raises `ValueError` — the mode must be `"r"`.
+   The auditor could not open any archive until this was fixed.
+2. Pairing images to labels on a *normalised* stem collapsed
+   `SG10_jpg.rf.<a>` and `SG10_jpg.rf.<b>` into one key, reporting 13 phantom
+   missing labels and undercounting instances as 755 instead of 770. Pairing now
+   uses the exact stem; normalisation is used only for leakage grouping.
+
+## Phase 0 regression after Phase 1
+
+- `tools/env_check.py` → `Environment check OK: 5 passed, 1 warning(s), 0 failure(s)`
+- `tools/camera_check.py` → 30.0 FPS at 1280x720, `Camera check PASSED`
+
+No Phase 0 test was modified.

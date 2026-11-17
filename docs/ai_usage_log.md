@@ -70,3 +70,71 @@ verification entry below.
 ## Team verification entries
 
 _(add one per member after re-running the checks)_
+
+---
+
+# Phase 1 — Dataset audit: AI usage record
+
+## What the AI did
+
+Wrote `tools/inspect_dataset.py` (read-only auditor) and
+`tests/test_inspect_dataset.py` (23 tests on synthetic fixtures), ran the audit
+against `data/raw/roboflow_safety_glasses_original.zip`, and wrote
+`docs/dataset_audit.md` plus the 13 records in `data/reviewed/audit/`.
+
+## Claims the AI made and how each was checked
+
+| Claim | How it was verified |
+|---|---|
+| Archive is unmodified | SHA-256 recomputed after the run and compared to the pre-run value; also asserted by a test that checks bytes and mtime |
+| 400 images / 400 labels / 770 instances | Cross-checked against an independent extraction of the ZIP; the first run reported 387/755 and that discrepancy exposed a real pairing bug (see below) |
+| 2 malformed rows | Independently re-read the two named label files; both really contain 9 fields |
+| 59 leakage groups | Broken down by kind and the five source stems (`SG6`, `SG8`, `SG11`, `SG2`, `SG14`) were listed individually and matched against the earlier ad hoc audit |
+| Outputs are deterministic | Ran the tool twice and diffed all 13 records; only the timestamps differed |
+| 131 tests pass | Ran `pytest -q`; result captured verbatim |
+| Phase 0 still works | Re-ran `env_check.py` and `camera_check.py` after the Phase 1 changes |
+
+## Two errors the AI made and corrected
+
+Both were caught by executing code, not by re-reading it. Recorded here because
+the corrected behaviour is the load-bearing part, not the original mistake.
+
+1. **`zipfile.ZipFile(path, "rb")`.** The auditor crashed on the very first run
+   with `ValueError: ZipFile requires mode 'r', 'w', 'x', or 'a'`. Fixed to
+   `"r"`. The exception handler was widened to cover `ValueError` so a bad
+   archive surfaces as a readable error rather than a traceback.
+
+2. **Pairing images to labels on a normalised stem.** The first successful run
+   reported 387 label files and 755 instances against 400 images. Investigation
+   showed two images sharing a normalised stem (`SG10_jpg.rf.<hashA>` and
+   `SG10_jpg.rf.<hashB>`) were collapsed into one pairing key, so one of each
+   pair looked unlabelled and its instances were dropped. Pairing now uses the
+   exact stem; normalisation is retained only for leakage grouping. Corrected
+   counts: 400 labels, 770 instances.
+
+A third, smaller error: three of the first tests asserted a `run_audit` keyword
+(`contact_sheets`) that does not exist — the real parameter is
+`make_contact_sheets`, and the return value is a wrapper dict whose `summary`
+key holds the findings. The tests were corrected to match the real signature.
+That mismatch also exposed a genuine gap: `run_audit` hashed the archive before
+checking it existed, so a missing path leaked a raw `FileNotFoundError`. An
+explicit existence check was added.
+
+## What the AI did NOT do
+
+- Did not train, fine-tune, or evaluate any model.
+- Did not create `models/best.pt`.
+- Did not rename `glasses` to `goggles`, remap any class, or infer `no_goggles`
+  from the absence of a box.
+- Did not modify, move, rename, or re-zip the source archive.
+- Did not rewrite splits or delete any duplicate.
+- Did not commit extracted images, the archive, contact sheets, or weights.
+- Did not claim any accuracy, mAP, precision, recall, or latency figure. The
+  audit produces no performance metric, because no model was run.
+
+## Residual uncertainty
+
+The near-duplicate threshold (Hamming <= 10 on a 64-bit dHash) is a judgement
+call, not a calibrated value. It is exposed as `--near-dup-bits` so a human can
+re-run with a different bound. The 377 figure should be read as "many frames are
+near-identical, consistent with video sampling", not as a defect count.

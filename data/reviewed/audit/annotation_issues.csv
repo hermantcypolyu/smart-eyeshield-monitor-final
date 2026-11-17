@@ -1,0 +1,13 @@
+severity,category,split,filename,detail
+error,malformed_row,train,1396_jpg.rf.d142b4780ad667d22672efd3125bca09.txt,line 1: 9 fields (polygon/segment row); a YOLO detection row needs exactly 5 (class cx cy w h)
+error,malformed_row,valid,1346_jpg.rf.c053300d8a0e8c275584d9cddb672fee.txt,line 1: 9 fields (polygon/segment row); a YOLO detection row needs exactly 5 (class cx cy w h)
+warning,box_exceeds_frame,train,1369_jpg.rf.3fcf8253c22589fb451410e4b16e25f4.txt,line 2: box extends outside the image in '3 0.543171875 0.193078125 0.6109218750000001 0.386171875'
+warning,box_exceeds_frame,train,1369_jpg.rf.3fcf8253c22589fb451410e4b16e25f4.txt,line 3: box extends outside the image in '4 0.5615625 0.8311093749999999 0.8768750000000001 0.337796875'
+warning,box_exceeds_frame,train,1382_jpg.rf.2116a98681e5493aff53527ae48ed3d0.txt,line 4: box extends outside the image in '4 0.6608906250000001 0.69121875 0.622390625 0.617578125'
+warning,box_exceeds_frame,train,1396_jpg.rf.d142b4780ad667d22672efd3125bca09.txt,line 3: box extends outside the image in '2 0.10471875 0.46440625 0.20945312500000002 0.33959375'
+warning,box_exceeds_frame,train,1433_jpg.rf.6f2f9756f849d2dc01a1b7818d25ab5f.txt,line 2: box extends outside the image in '3 0.502390625 0.185265625 0.518921875 0.370546875'
+warning,box_exceeds_frame,train,IMG_4762_71-97sec_jpg.rf.18980430f9714fd9602171197dd8a22d.txt,line 4: box extends outside the image in '2 0.8908703703703703 0.3736484375 0.2182685185185185 0.21775000000000003'
+warning,box_exceeds_frame,train,Protective-Glasses-png_15_png.rf.8ece95c71de47d59d89e14036c019042.txt,line 1: box extends outside the image in '1 0.4972534142640364 0.4908560311284047 0.9851745068285281 0.9817509727626459'
+warning,box_exceeds_frame,train,prescription-safety-glasses-on-face_29_jpeg_jpg.rf.3f4e794ff75d39752e284388692f3e58.txt,line 3: box extends outside the image in '3 0.35290625000000003 0.181359375 0.32414062499999996 0.362734375'
+warning,box_exceeds_frame,train,prescription-safety-glasses-on-face_29_jpeg_jpg.rf.3f4e794ff75d39752e284388692f3e58.txt,line 4: box extends outside the image in '3 0.6836562500000001 0.208703125 0.376265625 0.41742187499999994'
+warning,empty_label_file,train,prescription-safety-glasses-on-face_6_jpeg_jpg.rf.6e0a9a217300ea20426b7043f66baf09.txt,label file exists but has no rows

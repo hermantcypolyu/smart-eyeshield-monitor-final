@@ -1,0 +1,52 @@
+{
+  "arguments": {
+    "artifacts_dir": "data/reviewed/audit/artifacts",
+    "make_contact_sheets": true,
+    "near_dup_bits": 10,
+    "out_dir": "data/reviewed/audit",
+    "seed": 1337,
+    "zip": "data/raw/roboflow_safety_glasses_original.zip"
+  },
+  "contact_sheets": [
+    "contact_sheet_test.png",
+    "contact_sheet_train.png",
+    "contact_sheet_valid.png"
+  ],
+  "determinism": {
+    "note": "All CSV/JSON outputs are sorted deterministically; only the timestamps in this file differ between runs.",
+    "seed": 1337
+  },
+  "environment": {
+    "numpy_version": "2.5.5",
+    "opencv_version": "5.0.0",
+    "platform": "macOS-26.1-arm64-arm-64bit",
+    "python_version": "3.12.4",
+    "pyyaml_version": "6.0.3"
+  },
+  "exit_code": 3,
+  "finished_at_utc": "2026-11-17T13:32:52+00:00",
+  "outputs": [
+    "annotation_issues.csv",
+    "annotation_statistics.csv",
+    "class_counts.csv",
+    "corrupt_images.csv",
+    "dataset_summary.json",
+    "exact_duplicates.csv",
+    "image_statistics.csv",
+    "manual_review_queue.csv",
+    "missing_pairs.csv",
+    "near_duplicates.csv",
+    "source_manifest.csv",
+    "split_leakage.csv"
+  ],
+  "phase": 1,
+  "record_type": "audit_run_metadata",
+  "source_zip": {
+    "filename": "roboflow_safety_glasses_original.zip",
+    "sha256": "39afc3ac747c281e6165732f82f512fb6fcbbe15f0a0e7d58015d901c3e2cf53",
+    "size_bytes": 25717848
+  },
+  "started_at_utc": "2026-11-17T13:32:52+00:00",
+  "tool": "tools/inspect_dataset.py",
+  "tool_version": "1.0.0"
+}
