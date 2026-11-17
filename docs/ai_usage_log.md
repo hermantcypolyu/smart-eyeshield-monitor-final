@@ -283,3 +283,88 @@ git-ignored; `pytest` — 131 passed.
 
 **Still not verified:** every physical output. No board has been attached, and
 no claim of hardware success is made here.
+
+---
+
+## 2026-11-17 — Phase 2A rewritten against `plan.md` v2
+
+**Task given:** read the newly replaced `plan.md` (v2, 1029 lines) completely and
+begin Phase 2A exactly as it specifies, producing the mandatory working Arduino
+firmware, attempting compilation when a toolchain is available, running the
+existing regression checks, and then stopping for physical hardware validation.
+Explicitly out of scope: Phase 2B, JSON incident integration, Blynk, YOLO.
+
+### What changed and why
+
+The earlier Phase 2A firmware was written to the previous 739-line plan. v2
+differs materially, so the two source files were rewritten rather than patched:
+
+| Item | Before (old plan) | After (`plan.md` v2) |
+|---|---|---|
+| Serial commands | 9 (`GREEN_ON`…`SELF_TEST`) | **14** — adds `SAFE`, `ALARM`, `SILENCE`, `STOP_TEST` |
+| Macro names | `GREEN_ACTIVE_HIGH`, `BUZZER_MODE_PASSIVE` | `GREEN_LED_PIN`, `GREEN_LED_ACTIVE_HIGH`, `BUZZER_IS_PASSIVE`, … |
+| Buzzer modes | passive only | passive **and** active, selectable |
+| Tone frequency | 2700 Hz | **2000 Hz** (v2's mandated initial frequency) |
+| Self-test | 8 steps | 8 steps, same content, now with `STOP_TEST` interrupt |
+| Helper functions | implicit | v2's exact 10 names, incl. `applyOutputs` + `updateSelfTest(nowMs)` |
+| Extra file | `command_table.h` | **deleted** — not in v2's mandatory file list |
+| `STATUS` fields | pins, polarity, state | adds self-test step, uptime, active config source |
+
+`config.example.h` and `esp32_eye_shield_monitor.ino` were deleted and recreated
+so no superseded macro name or code path survives. `README.md` and
+`docs/hardware_bringup.md` were rewritten to match, including v2's exact
+14-step physical test order. `docs/decision_log.md` D-017 was rewritten (it
+described the now-deleted `command_table.h`) and D-016's "revisit if" clause was
+corrected now that an active buzzer is a supported configuration rather than a
+replacement trigger.
+
+### Claims made and how each was checked
+
+| Claim | Evidence |
+|---|---|
+| Compiles for the recorded target | `arduino-cli compile --fqbn esp32:esp32:esp32s3 --warnings all` → 316,337 B (24%) flash, 22,296 B (6%) RAM, **zero warnings** |
+| The `config.h` override path compiles | Created a temporary `config.h` with v2 macro names, active-low on all three outputs, `BUZZER_IS_PASSIVE 0`, 9600 baud, 250 ms steps → 308,570 B (23%) flash, zero warnings; file deleted afterwards |
+| Both buzzer branches are compiled, not just the default | The active-buzzer build exercised the `#else` branch of `startBuzzerTone`/`stopBuzzerTone` |
+| `command_table.h` is gone and nothing references it | `grep` over the repository; only the decision log mentions it, historically |
+| Phase 1 unaffected | `.venv/bin/python -m pytest -q` → **131 passed** |
+| Serial device path | **Not claimed.** `ls /dev/cu.*` shows only Bluetooth pseudo-ports; no board attached |
+
+### Errors made and corrected during this step
+
+1. **Unused-variable warning in the active-buzzer build.** `g_buzzer_pwm_ready`
+   is only meaningful when `BUZZER_IS_PASSIVE` is 1; with an active buzzer the
+   compiler warned `defined but not used` under `--warnings all`. Fixed by
+   wrapping the declaration in `#if BUZZER_IS_PASSIVE`. Both builds are now
+   warning-free.
+2. **The first compile result was from a different configuration than reported.**
+   The default-config compile (316,337 B) and the override compile (308,570 B)
+   were initially run in separate steps, and it was easy to quote one size for
+   both. Both were re-run and reported separately above.
+
+### What the AI did NOT do
+
+- Did not upload to hardware — no board is attached.
+- Did not claim any LED or buzzer works. Every output remains UNVERIFIED until
+  the human completes the §9 observation record.
+- Did not invent a macOS serial device path.
+- Did not implement Blynk, YOLO, the JSON protocol, or the latched alarm state
+  machine.
+- Did not add automated tests for the firmware. v2 mandates none, and the Code
+  Change Instructions forbid tests for trivial accessors.
+- Did not modify any Phase 0 or Phase 1 file. `tools/inspect_dataset.py` and
+  `tests/test_inspect_dataset.py` are untouched.
+
+### Residual uncertainty (for the human to resolve)
+
+1. Whether the board's silkscreen actually exposes GPIO11/12/14 under those
+   numbers.
+2. Whether the LED modules are active-high (the configured default) or
+   active-low.
+3. Whether the buzzer is passive or active, and whether GPIO14 can source it
+   without a transistor driver.
+4. Whether the traffic-light module is a 3.3 V or 5 V variant.
+5. The macOS serial device path and bridge chip.
+6. Whether the USB cable carries data.
+
+None of these can be settled from the repository. They are resolved by the
+physical test order in `docs/hardware_bringup.md` §6.

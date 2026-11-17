@@ -185,30 +185,37 @@ a pin still routed to the LEDC peripheral does not reliably change its level —
 hence detach-then-park. The version branch keeps the sketch compiling on both
 supported core generations instead of pinning the project to one.
 **Revisit if:** the observed modules turn out to be active-low (recorded in
-`config.h`, not here), or the buzzer proves to be an active type that ignores PWM
-frequency, in which case it must be replaced.
+`config.h`, not here), or the buzzer proves to be an active type. An active
+buzzer is now a supported configuration rather than a replacement trigger: set
+`BUZZER_IS_PASSIVE 0` and the sketch drives it as a DC level, ignoring
+`BUZZER_FREQUENCY_HZ`. `plan.md` v2 requires this mode, so the behaviour is a
+first-class branch, not an error path.
 
-## D-017 — Firmware types used in function signatures live in headers
+## D-017 — Command lookup returns an index, not a pointer
 
-**Date:** 2026-11-17 (Phase 2A)
-**Decision:** Keep `CommandEntry` in `command_table.h` rather than defining it in
-the `.ino`, and declare serial command handlers as `void`.
+**Date:** 2026-11-17 (Phase 2A; revised against `plan.md` v2)
+**Decision:** Keep the command table inside `esp32_eye_shield_monitor.ino` and
+have `findCommand()` return a `uint8_t` index into it, rather than returning a
+`const CommandEntry *` from a separate `command_table.h`. Handlers are declared
+`void`.
 **Why:** The Arduino builder generates a prototype for every sketch function and
-pastes them into a single block ahead of all sketch definitions. Because
-`findOutputCommand()` returns a `const CommandEntry *`, that block needs the type
-in scope. Defining the struct in the `.ino` fails, and a forward declaration
-there fails too — it also lands after the injected block. The build error is
-`'CommandEntry' does not name a type`. A header include is processed before the
-generated prototypes, so it resolves the ordering. Handlers return `void` because
-the dispatcher prints the reply itself and ignores any returned value.
+pastes them into a single block ahead of all sketch definitions. A function whose
+signature names a custom type fails to compile with `'X' does not name a type`,
+and a forward declaration in the `.ino` fails too because it also lands after the
+injected block. A separate header solves that, but `plan.md` v2's mandatory file
+list for Phase 2A does not include one, and returning a plain `uint8_t` removes
+the ordering problem entirely without extra files. Handlers return `void` because
+the dispatcher prints the reply itself from the table's `reply` field.
 **Why a table instead of an if/else chain:** every command is visible in one
-place, and `String == F("...")` has no direct overload in `WString` — it
-constructs a temporary `String` per comparison. `PSTR()` is the identity macro on
-ESP32, so literals already reside in flash and `F()` bought nothing here.
+place, and `cmd == F("...")` has no direct overload in `WString` — it constructs a
+temporary `String` per comparison. `PSTR()` is the identity macro on ESP32, so
+literals already reside in flash and `F()` bought nothing there.
 `String::equals()` also avoids allocating.
+**Supersedes:** the earlier Phase 2A note that put `CommandEntry` in
+`command_table.h`. That file has been deleted; this entry records the replacement.
 **Revisit if:** a future phase needs a command with per-invocation output, in
-which case add the output through the table's `reply` field rather than
-reintroducing a return value.
+which case extend the table's `reply` field rather than reintroducing a return
+value.
 
 ## Open decisions (to be recorded when resolved)
 

@@ -1,31 +1,40 @@
 # ESP32-S3 Eye-Shield Monitor — Firmware
 
-**Status: Phase 2A hardware bring-up. Self-test firmware only.**
+**Status: Phase 2A hardware bring-up. Working self-test firmware; physical
+behaviour not yet verified by a human.**
 
-This sketch proves that the three physical outputs are wired and driven
-correctly. It is **not** the product firmware.
+This is the mandatory Arduino sketch required by `plan.md` §"Phase 2A". It is
+real firmware, not a placeholder and not a wiring diagram. It drives the three
+physical outputs, exposes a line-oriented Serial Monitor command interface, and
+runs a non-blocking self-test. It is the same sketch that Phases 4 and 5 will
+upgrade in place — there is deliberately no second sketch.
 
-| Implemented in Phase 2A | Deliberately not implemented yet |
-|---|---|
-| Green LED on GPIO11 | Blynk / Wi-Fi / credentials |
-| Red LED on GPIO12 | YOLO or camera integration |
-| Passive buzzer PWM on GPIO14 | JSON serial protocol |
-| Serial command menu | Incident IDs, latching states |
-| Non-blocking `millis()` self-test | `BOOT`/`SAFE`/`ALARM_LATCHED`/… state machine |
-| Runtime active-high/active-low | Silence / Acknowledge / Reset commands |
-
-> **No claim of working hardware is made here.** Nothing in this repository
-> asserts that any LED or the buzzer actually operates until a human connects the
-> board, runs the tests in `docs/hardware_bringup.md`, and reports the observed
-> behaviour.
+> **No claim of working hardware is made in this file.**
+> Nothing here asserts that any LED or the buzzer actually operates. Every output
+> is **UNVERIFIED** until you connect the board, run the tests in
+> `docs/hardware_bringup.md`, and report what you physically observed.
 
 ---
 
-## Ownership split (unchanged from the plan)
+## Scope
+
+| In Phase 2A (this sketch) | Deliberately out of scope |
+|---|---|
+| Green output on GPIO11 | Blynk / Wi-Fi / credentials |
+| Red output on GPIO12 | YOLO / camera integration |
+| Buzzer output on GPIO14 (passive PWM **or** active DC) | Final JSON incident protocol |
+| 14-command Serial Monitor interface | Latched alarm state machine |
+| Non-blocking `millis()` self-test | Incident IDs, acknowledgement, reset |
+| Centralised active-high / active-low configuration | 7B models, cloud inference |
+
+`SAFE`, `ALARM` and `SILENCE` in this sketch are **bring-up presets that drive
+the pins**. They are not the Phase 4 latched state machine, and they do not
+survive a power cycle.
+
+## Ownership split (Phase 4/5, not Phase 2A)
 
 The ESP32 will own the **latched** alarm state. The laptop proposes; the ESP32
-decides and holds. That is Phase 4/5 behaviour and is **not** in this sketch —
-Phase 2A only proves the outputs can be driven.
+decides and holds. Phase 2A only proves that the outputs can be driven at all.
 
 ---
 
@@ -34,159 +43,157 @@ Phase 2A only proves the outputs can be driven.
 | File | Committed | Purpose |
 |---|---|---|
 | `esp32_eye_shield_monitor.ino` | yes | Self-test firmware |
-| `config.example.h` | yes | Pin, polarity, tone and baud defaults. No secrets. |
-| `command_table.h` | yes | `CommandEntry` struct used by the serial dispatcher. |
-| `config.h` | **no — git-ignored** | Your machine-specific overrides. Never commit. |
+| `config.example.h` | yes | Pin, polarity, buzzer and baud defaults. No secrets. |
 | `README.md` | yes | This file |
+| `config.h` | **no — git-ignored** | Machine-specific overrides. Never commit. |
+| `build/` | **no — git-ignored** | Compiler output |
 
-`config.h` is git-ignored by `.gitignore` line 20. It is the file that will hold
-Wi-Fi and Blynk credentials in Phase 5, so the ignore rule must stay in place.
+`config.h` is ignored by `.gitignore` line 20 and `firmware/**/build/` by line
+102. `config.h` is the file that will hold Wi-Fi and Blynk credentials in Phase
+5, so the ignore rule must stay in place. **During Phase 2A `config.h` must not
+contain any credentials.**
 
-The sketch uses `__has_include("config.h")` and falls back to
-`config.example.h` when the local file is absent, so a fresh clone compiles
-unmodified.
+The sketch uses `__has_include("config.h")` and falls back to `config.example.h`
+when the local file is absent, so a fresh clone always compiles unmodified.
 
-### Why `command_table.h` exists
+### Why there is no extra header file
 
 The Arduino builder generates a prototype for every sketch function and pastes
-them all into one block near the top of the translation unit, *before* any
-sketch definition. `findOutputCommand()` returns a `const CommandEntry *`, so
-that generated block needs the type to already be in scope.
+them all into one block near the top of the translation unit, *before any
+definition*. A function whose signature names a custom struct therefore fails
+with `'CommandEntry' does not name a type`, and adding a forward declaration in
+the `.ino` does not help because that also lands after the injected block.
 
-Defining the struct in the `.ino` does **not** work — not even with a forward
-declaration, because the forward declaration also lands after the injected
-block. The build fails with:
-
-```text
-error: 'CommandEntry' does not name a type
-```
-
-Keeping the struct in a header sidesteps this: the `#include` is processed
-before the generated prototypes. Any future type that appears in a sketch
-function signature must follow the same rule.
+The sketch avoids this by having `findCommand()` return a plain `uint8_t` index
+into the command table instead of a `const CommandEntry *`. No extra header is
+needed, which keeps the firmware to the file set that `plan.md` mandates.
 
 ---
 
-## Quick start
+## Configuration
 
-1. Wire the board exactly as in `docs/hardware_bringup.md` §2.
-2. Open `esp32_eye_shield_monitor.ino` in the Arduino IDE.
-3. Select **ESP32S3 Dev Module**, enable **USB CDC On Boot**, pick your port.
-4. Upload.
-5. Open Serial Monitor at **115200 baud**, line ending **Newline**.
-6. Type `SELF_TEST` and watch. Then test each output individually.
+All options live in `config.example.h` (or your local `config.h`). Nothing is
+hard-coded in the sketch.
 
-Full detail — board settings, port identification, upload, wiring table,
-expected behaviour, and the physical test script — is in
-[`docs/hardware_bringup.md`](../../docs/hardware_bringup.md).
-
----
-
-## Serial commands
-
-| Command | Effect | Expected reply |
+| Macro | Default | Meaning |
 |---|---|---|
-| `GREEN_ON` | Green LED on. Red and buzzer unchanged. | `OK GREEN_ON` |
-| `GREEN_OFF` | Green LED off. | `OK GREEN_OFF` |
-| `RED_ON` | Red LED on. Green and buzzer unchanged. | `OK RED_ON` |
-| `RED_OFF` | Red LED off. | `OK RED_OFF` |
-| `BUZZER_ON` | Buzzer tone at `BUZZER_TONE_HZ`. LEDs unchanged. | `OK BUZZER_ON` |
-| `BUZZER_OFF` | Buzzer silent. LEDs unchanged. | `OK BUZZER_OFF` |
-| `ALL_OFF` | Every output off. | `OK ALL_OFF` |
-| `SELF_TEST` | Run the 8-step non-blocking sequence. | `SELF_TEST started.` then `STEP n/8: …` per step |
-| `STATUS` | Report pin map, polarity and live state. | `---- STATUS ----` block |
-| `HELP` or `?` | Print the command list. | command list |
+| `GREEN_LED_PIN` | `11` | Green traffic-light input pin |
+| `RED_LED_PIN` | `12` | Red traffic-light input pin |
+| `BUZZER_PIN` | `14` | Buzzer signal pin |
+| `GREEN_LED_ACTIVE_HIGH` | `1` | `1` = active-high, `0` = active-low |
+| `RED_LED_ACTIVE_HIGH` | `1` | `1` = active-high, `0` = active-low |
+| `BUZZER_ACTIVE_HIGH` | `1` | `1` = active-high, `0` = active-low |
+| `BUZZER_IS_PASSIVE` | `1` | `1` = passive piezo (PWM tone), `0` = active buzzer (DC) |
+| `BUZZER_FREQUENCY_HZ` | `2000` | Tone frequency for passive buzzers |
+| `BUZZER_PWM_RESOLUTION_BITS` | `10` | LEDC resolution |
+| `BUZZER_DUTY_PERCENT` | `50` | Duty cycle, keeps volume reasonable |
+| `BUZZER_LEDC_CHANNEL` | `0` | LEDC channel (only used by ESP32 core 2.x) |
+| `SERIAL_BAUD_RATE` | `115200` | Serial Monitor baud rate |
+| `SELF_TEST_STEP_MS` | `500` | Dwell time per self-test step |
 
-Notes:
+**The polarity defaults are assumptions.** If an output behaves inverted, set the
+matching `*_ACTIVE_HIGH` to `0` — do not rewire the board to compensate.
 
-- Commands are case-insensitive; `green_on` works.
-- Any manual output command aborts a running `SELF_TEST` and reports
-  `SELF_TEST aborted (manual command). All outputs OFF.`
-- Unknown input returns `ERROR unknown command: <TEXT>` and does not change any
-  output.
+---
 
-### `STATUS` reply format
+## Serial Monitor commands
 
-```text
----------------- STATUS ----------------
-board firmware  : Phase 2A bring-up (self-test only)
-config.h        : defaults from config.example.h
-PIN_LED_GREEN   : GPIO11  polarity active-HIGH  state OFF
-PIN_LED_RED     : GPIO12  polarity active-HIGH  state OFF
-PIN_BUZZER      : GPIO14  polarity active-HIGH  tone 2700 Hz @ 50%  state OFF
-SELF_TEST       : idle
-uptime_ms       : 12345
-----------------------------------------
+Open Serial Monitor at **115200 baud**, line ending **Newline** or **CRLF**
+(both are accepted; CRLF does not fire a command twice).
+
+| Command | Green | Red | Buzzer | Notes |
+|---|---:|---:|---:|---|
+| `SAFE` | On | Off | Off | Normal compliant state |
+| `ALARM` | Off | On | On | Hardware alarm test only |
+| `SILENCE` | Off | On | Off | Alarm stays visually active |
+| `GREEN_ON` | On | Off | unchanged | Green/red are mutually exclusive |
+| `GREEN_OFF` | Off | unchanged | unchanged | |
+| `RED_ON` | Off | On | unchanged | Green/red are mutually exclusive |
+| `RED_OFF` | unchanged | Off | unchanged | |
+| `BUZZER_ON` | unchanged | unchanged | On | |
+| `BUZZER_OFF` | unchanged | unchanged | Off | Stops tone immediately |
+| `ALL_OFF` | Off | Off | Off | Bring-up safety state |
+| `SELF_TEST` | sequenced | sequenced | sequenced | Non-blocking, 8 steps |
+| `STOP_TEST` | Off | Off | Off | Immediate cancellation |
+| `STATUS` | — | — | — | Full state report, read-only |
+| `HELP` (`?`) | — | — | — | Command list, read-only |
+
+Every accepted command replies with `OK <COMMAND>`. Unknown input replies with
+`ERROR unknown command: <text>` followed by a `HELP` hint, and **leaves the
+outputs unchanged**.
+
+`STATUS` and `HELP` never disturb a running self-test. Any command that changes
+an output cancels a running self-test first, so the sequence can never fight a
+human command.
+
+### `STATUS` reports
+
+- green, red and buzzer state;
+- configured active polarity for each output;
+- buzzer mode (passive PWM / active DC) and frequency;
+- self-test active/inactive (with the current step number);
+- uptime in milliseconds;
+- which config file is in effect.
+
+### `SELF_TEST` sequence
+
+Eight steps, `SELF_TEST_STEP_MS` apart, driven by `millis()`:
+
+1. Green ON
+2. Green OFF
+3. Red ON
+4. Red OFF
+5. Buzzer ON
+6. Buzzer OFF
+7. Red + buzzer ON
+8. All OFF — sequence ends here
+
+Each step prints `STEP n/8: <what to expect>`. `STOP_TEST` interrupts at any
+point and forces all outputs off.
+
+---
+
+## Timing discipline
+
+`loop()` never blocks. Serial input is polled, the self-test advances on
+`millis()`, and there is **no `delay()` in the runtime path**. The only wait is a
+bounded 2000 ms startup wait for native USB CDC enumeration in `setup()`, which
+prevents the boot banner being lost. Short self-test dwell times exist solely so
+the human watching the LEDs can see each step.
+
+## Buzzer handling
+
+- **Passive piezo** (`BUZZER_IS_PASSIVE 1`) — driven by an LEDC square wave at
+  `BUZZER_FREQUENCY_HZ`. Silent by writing duty 0.
+- **Active buzzer** (`BUZZER_IS_PASSIVE 0`) — driven by a static DC level. The
+  frequency macro is ignored.
+
+The pin is detached from the LEDC peripheral before being parked at its inactive
+level. `digitalWrite()` on a pin still routed to LEDC does not do what it looks
+like, because the peripheral owns the pin.
+
+Both Arduino-ESP32 core 2.x and 3.x LEDC APIs are supported behind
+`ESP_ARDUINO_VERSION_MAJOR` (3.x attaches by pin, 2.x attaches by channel).
+
+---
+
+## Compile
+
+Verified locally with Arduino CLI 1.5.1 and Arduino-ESP32 core **3.3.11**:
+
+```
+"/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" \
+  compile --fqbn esp32:esp32:esp32s3 --warnings all \
+  firmware/esp32_eye_shield_monitor --output-dir /tmp/build
 ```
 
-`state` is the **logical** state (energised or not), not the raw pin voltage.
-This is deliberate: if a module is inverted, the command reports `state ON`
-while the lamp stays dark, which localises the fault immediately.
+Result: **compiles clean, no warnings**, 316,337 bytes (24%) of program storage,
+22,296 bytes (6%) of dynamic memory.
 
----
+> Compiling is not uploading, and uploading is not physical verification.
+> A successful compile proves only that the code is valid C++ for the target.
 
-## Polarity
+## Upload and wiring
 
-Every output has its own compile-time polarity switch in `config.example.h`:
-
-```c
-#define GREEN_ACTIVE_HIGH 1   /* 1 = HIGH turns it ON, 0 = LOW turns it ON */
-#define RED_ACTIVE_HIGH 1
-#define BUZZER_ACTIVE_HIGH 1
-```
-
-Defaults are active-HIGH. If `SELF_TEST` shows an output on when it should be
-off (and off when it should be on), set that output's flag to `0` and re-upload.
-The inversion is applied in exactly one place — `writeActiveLevel()` — so no
-other code changes.
-
----
-
-## Non-blocking design
-
-`loop()` never blocks:
-
-- serial input is polled with `Serial.available()` and accumulated into a line
-  buffer;
-- the self-test advances on `millis()` deltas, one step per
-  `SELF_TEST_STEP_MS`;
-- there is **no `delay()` in the runtime path**. The only bounded wait is the
-  ≤2 s USB-CDC enumeration spin in `setup()`, which cannot be avoided on native
-  USB boards and runs once at boot.
-
-Elapsed-time comparisons use unsigned subtraction (`millis() - mark`) so they
-stay correct across the 49-day `millis()` rollover.
-
----
-
-## Passive buzzer drive
-
-A passive piezo has no internal oscillator, so it needs a **square wave**, not a
-DC level. The sketch drives it with LEDC PWM at `BUZZER_TONE_HZ` and
-`BUZZER_DUTY_PERCENT`.
-
-The Arduino-ESP32 core changed the LEDC API in 3.x, so both are supported behind
-an `ESP_ARDUINO_VERSION_MAJOR` check:
-
-- core 3.x — `ledcAttach(pin, freq, res)` / `ledcWrite(pin, duty)` / `ledcDetach(pin)`;
-- core 2.x — `ledcSetup(ch, freq, res)` / `ledcAttachPin(pin, ch)` /
-  `ledcWrite(ch, duty)` / `ledcDetachPin(pin)`.
-
-Silencing detaches the pin from the LEDC peripheral **before** parking it at its
-inactive GPIO level. Writing `digitalWrite()` to a pin still owned by the LEDC
-mux does not reliably change the level.
-
----
-
-## Verified so far
-
-| Check | Result |
-|---|---|
-| Compiles for `esp32:esp32:esp32s3`, ESP32 core 3.3.11 | **pass** — 314,825 bytes (24%) flash, 22,296 bytes (6%) RAM |
-| Compiles with `--warnings all` | **pass** — no warnings |
-| Compiles with a local `config.h` override | **pass** |
-| `config.h` is git-ignored | **pass** — `git check-ignore` resolves to `.gitignore:20` |
-| Any physical output verified | **NO — awaiting user hardware test** |
-
-Compilation is the only evidence recorded here. No LED, buzzer, pin voltage, or
-current measurement has been observed.
+See `docs/hardware_bringup.md` for the wiring table, Arduino IDE settings, the
+upload procedure, and the mandatory 14-step physical test order.
