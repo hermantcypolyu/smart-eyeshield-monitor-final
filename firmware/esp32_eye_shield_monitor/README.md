@@ -35,6 +35,7 @@ Phase 2A only proves the outputs can be driven.
 |---|---|---|
 | `esp32_eye_shield_monitor.ino` | yes | Self-test firmware |
 | `config.example.h` | yes | Pin, polarity, tone and baud defaults. No secrets. |
+| `command_table.h` | yes | `CommandEntry` struct used by the serial dispatcher. |
 | `config.h` | **no — git-ignored** | Your machine-specific overrides. Never commit. |
 | `README.md` | yes | This file |
 
@@ -44,6 +45,25 @@ Wi-Fi and Blynk credentials in Phase 5, so the ignore rule must stay in place.
 The sketch uses `__has_include("config.h")` and falls back to
 `config.example.h` when the local file is absent, so a fresh clone compiles
 unmodified.
+
+### Why `command_table.h` exists
+
+The Arduino builder generates a prototype for every sketch function and pastes
+them all into one block near the top of the translation unit, *before* any
+sketch definition. `findOutputCommand()` returns a `const CommandEntry *`, so
+that generated block needs the type to already be in scope.
+
+Defining the struct in the `.ino` does **not** work — not even with a forward
+declaration, because the forward declaration also lands after the injected
+block. The build fails with:
+
+```text
+error: 'CommandEntry' does not name a type
+```
+
+Keeping the struct in a header sidesteps this: the `#include` is processed
+before the generated prototypes. Any future type that appears in a sketch
+function signature must follow the same rule.
 
 ---
 
@@ -162,7 +182,7 @@ mux does not reliably change the level.
 
 | Check | Result |
 |---|---|
-| Compiles for `esp32:esp32:esp32s3`, ESP32 core 3.3.11 | **pass** — 315,765 bytes (24%) flash, 22,296 bytes (6%) RAM |
+| Compiles for `esp32:esp32:esp32s3`, ESP32 core 3.3.11 | **pass** — 314,825 bytes (24%) flash, 22,296 bytes (6%) RAM |
 | Compiles with `--warnings all` | **pass** — no warnings |
 | Compiles with a local `config.h` override | **pass** |
 | `config.h` is git-ignored | **pass** — `git check-ignore` resolves to `.gitignore:20` |

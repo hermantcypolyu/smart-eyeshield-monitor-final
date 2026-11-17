@@ -165,7 +165,7 @@ Files affected:  firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino 
 Output accepted as-is / modified / rejected: accepted after two AI self-corrections
                  described below; no human hardware verification yet.
 How it was verified: arduino-cli compile for esp32:esp32:esp32s3 (esp32 core
-                 3.3.11) — pass, 315,765 bytes (24 %) flash / 22,296 bytes (6 %)
+                 3.3.11) — pass, 314,825 bytes (24 %) flash / 22,296 bytes (6 %)
                  RAM; re-compiled with --warnings all — no warnings; re-compiled
                  with a local config.h override — pass; git check-ignore confirmed
                  config.h is ignored and config.example.h is trackable.
@@ -246,3 +246,40 @@ owns the pin. Fixed by detaching from LEDC (`ledcDetach` / `ledcDetachPin`)
    interchangeable.
 5. The macOS serial device path and bridge chip — unknown until the board is
    plugged in.
+
+### Phase 2A follow-up — dispatcher cleanup (same day)
+
+**Task given:** a self-review of the committed firmware, not a new phase.
+
+**What changed:** the serial dispatcher was rebuilt as a table lookup
+(`OUTPUT_COMMANDS[]`) with `void` handlers, replacing an if/else chain that
+compared `String` against `F("...")`. The `CommandEntry` struct moved to a new
+`command_table.h`. Command behaviour, output text, and the self-test are
+unchanged; flash use dropped from 315,765 to 314,825 bytes.
+
+**Why:** `WString` in esp32 core 3.3.11 has no `operator==(const
+__FlashStringHelper *)`, so each `cmd == F("GREEN_ON")` silently built a
+temporary `String`. `PSTR()` is `(s)` on ESP32, so the flash-string wrapper
+gained nothing there. `String::equals()` compares in place with no allocation.
+
+**Error made and corrected during this step:** moving the struct into the `.ino`
+broke the build with `'CommandEntry' does not name a type`. A forward declaration
+did not help. Reading the generated
+`sketch/esp32_eye_shield_monitor.ino.cpp` showed the builder pastes every
+function prototype into one block at the top of the translation unit, ahead of
+all definitions — so the struct had to move to a header the preprocessor expands
+first. Recorded as D-017.
+
+**Second error, in the verification itself:** the first `config.h` override test
+failed because the throwaway file I generated used invented macro names
+(`LED_GREEN_ACTIVE_HIGH`) instead of the real ones (`GREEN_ACTIVE_HIGH`). The
+firmware was correct; the test fixture was wrong. Re-run with the real names:
+passes.
+
+**Verified:** compiles clean for `esp32:esp32:esp32s3` under `--warnings all`;
+compiles clean with a local `config.h` override using inverted polarity and
+different pins; the temporary `config.h` was deleted afterwards and remains
+git-ignored; `pytest` — 131 passed.
+
+**Still not verified:** every physical output. No board has been attached, and
+no claim of hardware success is made here.

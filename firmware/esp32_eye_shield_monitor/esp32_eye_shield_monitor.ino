@@ -50,6 +50,8 @@
 #  define USING_LOCAL_CONFIG 0
 #endif
 
+#include "command_table.h"
+
 /* ===========================================================================
  * Output abstraction
  *
@@ -287,63 +289,76 @@ static void printStatus() {
   Serial.println(F("----------------------------------------"));
 }
 
-/* True only for commands that assert an output state. Unknown input and
- * read-only commands must not disturb a running self-test. */
-static bool isOutputCommand(const String &cmd) {
-  return cmd == F("GREEN_ON") || cmd == F("GREEN_OFF") ||
-         cmd == F("RED_ON") || cmd == F("RED_OFF") ||
-         cmd == F("BUZZER_ON") || cmd == F("BUZZER_OFF") ||
-         cmd == F("ALL_OFF");
+/*
+ * Command table.
+ *
+ * Dispatch is a table lookup rather than a chain of String comparisons for two
+ * reasons: every command is declared in one visible place, and comparing a
+ * String against `F("...")` would construct a temporary String per comparison
+ * (WString has no __FlashStringHelper comparison overload). On ESP32, PSTR() is
+ * the identity macro, so string literals already live in flash and F() adds
+ * nothing here.
+ *
+ * The struct itself lives in command_table.h because the Arduino builder injects
+ * generated prototypes above every sketch definition, and one of those
+ * prototypes returns a CommandEntry pointer.
+ */
+
+static void cmdGreenOn()  { setGreen(true);  }
+static void cmdGreenOff() { setGreen(false); }
+static void cmdRedOn()    { setRed(true);    }
+static void cmdRedOff()   { setRed(false);   }
+static void cmdBuzzerOn() { setBuzzer(true); }
+static void cmdBuzzerOff(){ setBuzzer(false);}
+static void cmdAllOff()   { allOff();        }
+
+static const CommandEntry OUTPUT_COMMANDS[] = {
+  { "GREEN_ON",   "OK GREEN_ON",   cmdGreenOn   },
+  { "GREEN_OFF",  "OK GREEN_OFF",  cmdGreenOff  },
+  { "RED_ON",     "OK RED_ON",     cmdRedOn     },
+  { "RED_OFF",    "OK RED_OFF",    cmdRedOff    },
+  { "BUZZER_ON",  "OK BUZZER_ON",  cmdBuzzerOn  },
+  { "BUZZER_OFF", "OK BUZZER_OFF", cmdBuzzerOff },
+  { "ALL_OFF",    "OK ALL_OFF",    cmdAllOff    },
+};
+static const uint8_t OUTPUT_COMMAND_COUNT =
+    sizeof(OUTPUT_COMMANDS) / sizeof(OUTPUT_COMMANDS[0]);
+
+static const CommandEntry *findOutputCommand(const String &cmd) {
+  for (uint8_t i = 0; i < OUTPUT_COMMAND_COUNT; i++) {
+    if (cmd.equals(OUTPUT_COMMANDS[i].name)) return &OUTPUT_COMMANDS[i];
+  }
+  return nullptr;
 }
 
-/* Commands that assert one output must not fight a running self-test. */
+static bool strEquals(const String &cmd, const char *literal) {
+  return cmd.equals(literal);
+}
+
 static void handleCommand(String cmd) {
   cmd.trim();
   cmd.toUpperCase();
   if (cmd.length() == 0) return;
 
-  const bool isSelfTest = (cmd == F("SELF_TEST"));
+  /* Read-only commands never disturb a running self-test. */
+  if (strEquals(cmd, "STATUS")) { printStatus(); return; }
+  if (strEquals(cmd, "HELP") || strEquals(cmd, "?")) { printHelp(); return; }
 
-  if (isSelfTest) {
-    selfTestStart();
-    return;
-  }
+  if (strEquals(cmd, "SELF_TEST")) { selfTestStart(); return; }
 
-  if (cmd == F("STATUS")) { printStatus(); return; }
-  if (cmd == F("HELP") || cmd == F("?")) { printHelp(); return; }
-
-  /* Only a real output command cancels the self-test. A typo or a read-only
-   * query must leave the sequence alone. */
-  if (isOutputCommand(cmd)) {
-    selfTestCancel(F("manual command"));
-  }
-
-  if (cmd == F("GREEN_ON")) {
-    setGreen(true);
-    Serial.println(F("OK GREEN_ON"));
-  } else if (cmd == F("GREEN_OFF")) {
-    setGreen(false);
-    Serial.println(F("OK GREEN_OFF"));
-  } else if (cmd == F("RED_ON")) {
-    setRed(true);
-    Serial.println(F("OK RED_ON"));
-  } else if (cmd == F("RED_OFF")) {
-    setRed(false);
-    Serial.println(F("OK RED_OFF"));
-  } else if (cmd == F("BUZZER_ON")) {
-    setBuzzer(true);
-    Serial.println(F("OK BUZZER_ON"));
-  } else if (cmd == F("BUZZER_OFF")) {
-    setBuzzer(false);
-    Serial.println(F("OK BUZZER_OFF"));
-  } else if (cmd == F("ALL_OFF")) {
-    allOff();
-    Serial.println(F("OK ALL_OFF"));
-  } else {
+  /* Only a real output command cancels the self-test. A typo must leave the
+   * sequence alone. */
+  const CommandEntry *entry = findOutputCommand(cmd);
+  if (entry == nullptr) {
     Serial.print(F("ERROR unknown command: "));
     Serial.println(cmd);
     Serial.println(F("Type HELP for the command list."));
+    return;
   }
+
+  selfTestCancel(F("manual command"));
+  entry->handler();
+  Serial.println(entry->reply);
 }
 
 /* ===========================================================================

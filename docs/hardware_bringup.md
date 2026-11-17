@@ -243,7 +243,7 @@ an ESP32 target.
 
 ```
 Writing at 0x00010000... (100 %)
-Wrote 315248 bytes ... Hash of data verified.
+Wrote 315088 bytes ... Hash of data verified.
 Leaving...
 Hard resetting via RTS pin...
 ```
@@ -284,7 +284,7 @@ Verified working on this machine:
 Expected tail:
 
 ```
-Sketch uses 315765 bytes (24%) of program storage space. Maximum is 1310720 bytes.
+Sketch uses 314825 bytes (24%) of program storage space. Maximum is 1310720 bytes.
 Global variables use 22296 bytes (6%) of dynamic memory, leaving 305384 bytes for local variables. Maximum is 327680 bytes.
 ```
 
