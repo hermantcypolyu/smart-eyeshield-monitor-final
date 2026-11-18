@@ -498,7 +498,9 @@ the history shows the claim was withheld until evidence existed.
   handling, lowercase input, and green-then-red exclusivity (§9.2 S2/S3/S5) are
   still "not recorded", and pin voltages and buzzer current are still unmeasured.
   These are optional supplementary checks, not Phase 2A acceptance criteria.
-- Did **not** upgrade "not recorded" to PASS by inference.
+- Did **not** upgrade "not recorded" to PASS by inference. Notably `HELP` is
+  listed as unexercised rather than folded into the 14/14 count, even though it is
+  non-actuating and would not have changed acceptance.
 - Did **not** begin Phase 2B, touch any Phase 0/1 file, or add features or tests.
 - Did **not** reopen the firmware. It was verified as-is; no code changed in this
   segment, so the compile result stands from `c503e4c`.
@@ -511,6 +513,7 @@ the history shows the claim was withheld until evidence existed.
 | Firmware still builds | `arduino-cli compile --warnings all` → 308,594 B (23%) / 22,176 B (6%), zero warnings |
 | No regressions | `.venv/bin/python -m pytest -q` → **131 passed** |
 | No stale "not verified" claims remain in the bring-up docs | `grep -n "OUTSTANDING\|not run — blocked"` → no matches |
+| Command-coverage claim is accurate | 13 of 14 exercised; `HELP` recorded as not separately reported rather than counted as PASS |
 
 ### Residual risk carried into Phase 2B
 

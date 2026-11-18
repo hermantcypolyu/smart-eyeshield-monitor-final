@@ -9,10 +9,11 @@
 
 ## 0. Status — read this first
 
-**Phase 2A is COMPLETE.** All 14 required commands and all five outputs are
+**Phase 2A is COMPLETE.** All five outputs and 13 of the 14 required commands are
 physically verified on the real board. The human ran both remaining tests —
 `SELF_TEST` in full and `STOP_TEST` as a mid-sequence interrupt — on 2026-11-18
-and reported PASS on every sub-check.
+and reported PASS on every sub-check. `HELP` is the one command not separately
+reported; it is non-actuating and does not affect acceptance (§9.5).
 
 | Evidence | Status |
 |---|---|
@@ -21,7 +22,7 @@ and reported PASS on every sub-check.
 | Compile result | **success, zero warnings** — 308,594 B (23%) flash, 22,176 B (6%) RAM |
 | Upload attempted | **yes** — 2026-11-18, `/dev/cu.usbserial-10` |
 | Upload result | **success** at **115200** baud, flash hash verified (921600 failed) |
-| Serial commands exercised on hardware | **yes** — all 14 commands |
+| Serial commands exercised on hardware | **yes** — 13 of 14 (`HELP` not reported) |
 | GPIO11 green physically observed | **yes** |
 | GPIO12 red physically observed | **yes** |
 | GPIO14 buzzer physically observed | **yes** |
@@ -643,13 +644,16 @@ Against `plan.md` v2's ten Phase 2A requirements:
 | 7 | Combined red LED and buzzer test | `SELF_TEST` stage 7 | **PASS** |
 | 8 | Non-blocking timing via `millis()` | No blocking `delay()` in the sequence; `STOP_TEST` aborts between steps | **PASS** |
 | 9 | Configurable active-high/low outputs | `*_ACTIVE_HIGH` flags; mixed polarity in use and working | **PASS** |
-| 10 | Serial command menu | 14 commands; all exercised, `HELP` and `STATUS` respond | **PASS** |
+| 10 | Serial command menu | 14 commands implemented; 13 actuating/querying commands exercised on hardware. `HELP` is non-actuating and was not separately reported — it prints static text and cannot affect hardware. | **PASS** |
 
-Command coverage — all 14 exercised on hardware:
+Command coverage — exercised on hardware, as reported by the human:
 
 `GREEN_ON`, `GREEN_OFF`, `RED_ON`, `RED_OFF`, `BUZZER_ON`, `BUZZER_OFF`,
-`ALL_OFF`, `SELF_TEST`, `STOP_TEST`, `STATUS`, `SAFE`, `ALARM`, `SILENCE`,
-`HELP`.
+`ALL_OFF`, `SAFE`, `ALARM`, `SILENCE`, `SELF_TEST`, `STOP_TEST`, `STATUS`.
+
+Not separately reported: `HELP`. It is deliberately listed as the one unexercised
+command rather than folded into the PASS count — it has no hardware effect, so it
+cannot change the acceptance outcome either way.
 
 **Phase 2A: COMPLETE and accepted.** Not covered by this phase, and deliberately
 so — see §10.
