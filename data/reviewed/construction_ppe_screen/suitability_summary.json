@@ -1,0 +1,405 @@
+{
+  "annotation_issues_total": 0,
+  "contact_sheets": [
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_01_largest_goggles.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_03_medium_goggles.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_05_smallest_goggles.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_07_random_goggles.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_01_largest_no_goggle.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_03_medium_no_goggle.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_05_smallest_no_goggle.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_07_random_no_goggle.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_09_near_duplicate_groups.png",
+    "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/reviewed/construction_ppe_screen/artifacts/contact_sheet_10_split_leakage_groups.png"
+  ],
+  "counts": {
+    "corrupt_images": 0,
+    "goggles_boxes": 751,
+    "goggles_images": 539,
+    "images_total_in_archive": 1000,
+    "images_with_both_classes": 43,
+    "images_with_relevant_box": 779,
+    "images_without_relevant_box": 221,
+    "missing_labels": 0,
+    "no_goggle_boxes": 347,
+    "no_goggle_images": 283,
+    "relevant_boxes_total": 1098
+  },
+  "duplicates": {
+    "cross_split_candidates": 5,
+    "exact_groups": 0,
+    "near_duplicate_groups": 9,
+    "near_duplicate_threshold_bits": 10
+  },
+  "geometry": {
+    "all_relevant": {
+      "aspect_ratio": {
+        "median": 1.976
+      },
+      "box_area_ratio_percent": {
+        "max": 6.0776,
+        "median": 0.3131,
+        "min": 0.0056,
+        "p10": 0.0407,
+        "p90": 0.8131
+      },
+      "box_height_px": {
+        "median": 64.61
+      },
+      "box_width_px": {
+        "median": 129.06
+      },
+      "boxes": 1098,
+      "minimum_side_px": {
+        "max": 242.16,
+        "median": 64.59,
+        "min": 7.17,
+        "p10": 23.12,
+        "p90": 123.78
+      },
+      "size_band_counts": {
+        "REVIEW": 263,
+        "STRONG": 722,
+        "TOO_SMALL": 113
+      }
+    },
+    "goggles": {
+      "aspect_ratio": {
+        "median": 1.948
+      },
+      "box_area_ratio_percent": {
+        "max": 6.0776,
+        "median": 0.4337,
+        "min": 0.0132,
+        "p10": 0.2092,
+        "p90": 0.9512
+      },
+      "box_height_px": {
+        "median": 79.49
+      },
+      "box_width_px": {
+        "median": 153.37
+      },
+      "boxes": 751,
+      "minimum_side_px": {
+        "max": 242.16,
+        "median": 79.4,
+        "min": 13.31,
+        "p10": 49.8,
+        "p90": 131.81
+      },
+      "size_band_counts": {
+        "REVIEW": 54,
+        "STRONG": 689,
+        "TOO_SMALL": 8
+      }
+    },
+    "no_goggle": {
+      "aspect_ratio": {
+        "median": 2.071
+      },
+      "box_area_ratio_percent": {
+        "max": 3.0761,
+        "median": 0.0693,
+        "min": 0.0056,
+        "p10": 0.0195,
+        "p90": 0.1825
+      },
+      "box_height_px": {
+        "median": 30.72
+      },
+      "box_width_px": {
+        "median": 63.36
+      },
+      "boxes": 347,
+      "minimum_side_px": {
+        "max": 112.71,
+        "median": 29.95,
+        "min": 7.17,
+        "p10": 16.32,
+        "p90": 47.11
+      },
+      "size_band_counts": {
+        "REVIEW": 209,
+        "STRONG": 33,
+        "TOO_SMALL": 105
+      }
+    }
+  },
+  "notes": [
+    "Box size is a screening signal only. No semantic claim is made here.",
+    "recommended_action is provisional and based on minimum side length.",
+    "Manual visual review of the contact sheets is required before any verdict."
+  ],
+  "provisional_useful_candidates": {
+    "goggles": {
+      "review_24_to_48px": 54,
+      "strong_min_side_ge_48px": 689,
+      "too_small_lt_24px": 8,
+      "total": 751
+    },
+    "no_goggle": {
+      "review_24_to_48px": 209,
+      "strong_min_side_ge_48px": 33,
+      "too_small_lt_24px": 105,
+      "total": 347
+    }
+  },
+  "source": {
+    "class_names_total": 12,
+    "data_yaml_member": "construction-ppe/data.yaml",
+    "relevant_source_class_ids": {
+      "goggles": 4,
+      "no_goggle": 7
+    },
+    "sha256_after": "e5817aa9c73f33e525d76ca6bc6af4e4eac9dcea9bcfef1cfd1a71c09fbc1232",
+    "sha256_before": "e5817aa9c73f33e525d76ca6bc6af4e4eac9dcea9bcfef1cfd1a71c09fbc1232",
+    "unchanged": true,
+    "zip_path": "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/raw/construction_ppe_original.zip"
+  },
+  "thresholds": [
+    {
+      "boxes_below": 2,
+      "boxes_surviving": 749,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 99.73,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=16px"
+    },
+    {
+      "boxes_below": 8,
+      "boxes_surviving": 743,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 98.93,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=24px"
+    },
+    {
+      "boxes_below": 11,
+      "boxes_surviving": 740,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 98.54,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=32px"
+    },
+    {
+      "boxes_below": 62,
+      "boxes_surviving": 689,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 91.74,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=48px"
+    },
+    {
+      "boxes_below": 133,
+      "boxes_surviving": 618,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 82.29,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=0.25%"
+    },
+    {
+      "boxes_below": 461,
+      "boxes_surviving": 290,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 38.62,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=0.5%"
+    },
+    {
+      "boxes_below": 685,
+      "boxes_surviving": 66,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 8.79,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=1%"
+    },
+    {
+      "boxes_below": 742,
+      "boxes_surviving": 9,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 1.2,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=2%"
+    },
+    {
+      "boxes_below": 750,
+      "boxes_surviving": 1,
+      "boxes_total": 751,
+      "class": "goggles",
+      "percent_surviving": 0.13,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=3%"
+    },
+    {
+      "boxes_below": 26,
+      "boxes_surviving": 321,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 92.51,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=16px"
+    },
+    {
+      "boxes_below": 105,
+      "boxes_surviving": 242,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 69.74,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=24px"
+    },
+    {
+      "boxes_below": 192,
+      "boxes_surviving": 155,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 44.67,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=32px"
+    },
+    {
+      "boxes_below": 314,
+      "boxes_surviving": 33,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 9.51,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=48px"
+    },
+    {
+      "boxes_below": 332,
+      "boxes_surviving": 15,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 4.32,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=0.25%"
+    },
+    {
+      "boxes_below": 346,
+      "boxes_surviving": 1,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 0.29,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=0.5%"
+    },
+    {
+      "boxes_below": 346,
+      "boxes_surviving": 1,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 0.29,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=1%"
+    },
+    {
+      "boxes_below": 346,
+      "boxes_surviving": 1,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 0.29,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=2%"
+    },
+    {
+      "boxes_below": 346,
+      "boxes_surviving": 1,
+      "boxes_total": 347,
+      "class": "no_goggle",
+      "percent_surviving": 0.29,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=3%"
+    },
+    {
+      "boxes_below": 28,
+      "boxes_surviving": 1070,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 97.45,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=16px"
+    },
+    {
+      "boxes_below": 113,
+      "boxes_surviving": 985,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 89.71,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=24px"
+    },
+    {
+      "boxes_below": 203,
+      "boxes_surviving": 895,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 81.51,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=32px"
+    },
+    {
+      "boxes_below": 376,
+      "boxes_surviving": 722,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 65.76,
+      "threshold_kind": "minimum_side_px",
+      "threshold_value": ">=48px"
+    },
+    {
+      "boxes_below": 465,
+      "boxes_surviving": 633,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 57.65,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=0.25%"
+    },
+    {
+      "boxes_below": 807,
+      "boxes_surviving": 291,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 26.5,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=0.5%"
+    },
+    {
+      "boxes_below": 1031,
+      "boxes_surviving": 67,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 6.1,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=1%"
+    },
+    {
+      "boxes_below": 1088,
+      "boxes_surviving": 10,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 0.91,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=2%"
+    },
+    {
+      "boxes_below": 1096,
+      "boxes_surviving": 2,
+      "boxes_total": 1098,
+      "class": "all_relevant",
+      "percent_surviving": 0.18,
+      "threshold_kind": "box_area_ratio",
+      "threshold_value": ">=3%"
+    }
+  ]
+}

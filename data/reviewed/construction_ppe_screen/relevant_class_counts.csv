@@ -1,0 +1,3 @@
+source_class,source_class_id,box_count,image_count,boxes_in_train,boxes_in_val
+goggles,4,751,539,612,139
+no_goggle,7,347,283,265,82

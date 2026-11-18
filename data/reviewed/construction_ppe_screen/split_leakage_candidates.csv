@@ -1,0 +1,6 @@
+group_id,basis,splits,member_count,members
+3699754a445a,near,train/val,3,train:source-3978abe9cfed5d8a5faa5a98dfe4b00a;train:source-efc23273c04e007083114c0f217335f0;val:source-9e10b0409f922546c35b276eb5a5756e
+ffee7a170883,near,train/val,3,train:ultralytics-ppe-nov2026-069;train:ultralytics-ppe-nov2026-310;val:ultralytics-ppe-nov2026-472
+2bf2aae459b2,near,train/val,2,train:ultralytics-ppe-nov2026-460;val:source-8497dd5065ce426e2d223085b4a773a0
+3e5a1cab7025,near,train/val,2,train:ultralytics-ppe-nov2026-541;val:ultralytics-ppe-nov2026-549
+612fc96f5f16,near,train/val,3,train:ultralytics-ppe-nov2026-569;val:source-9b649b7415bcb389744b5dcc00c39a00;val:ultralytics-ppe-nov2026-298

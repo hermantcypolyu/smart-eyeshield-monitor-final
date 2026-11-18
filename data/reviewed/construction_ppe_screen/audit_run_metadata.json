@@ -1,0 +1,30 @@
+{
+  "area_thresholds": [
+    "0.25%",
+    "0.5%",
+    "1%",
+    "2%",
+    "3%"
+  ],
+  "classes_remapped": false,
+  "extracted_to_disk": false,
+  "hash_side": 8,
+  "near_duplicate_hamming_threshold": 10,
+  "random_seed": 20261118,
+  "side_thresholds_px": [
+    16,
+    24,
+    32,
+    48
+  ],
+  "size_bands": {
+    "REVIEW": "24..48px",
+    "STRONG": ">= 48px",
+    "TOO_SMALL": "< 24px"
+  },
+  "source_sha256_after": "e5817aa9c73f33e525d76ca6bc6af4e4eac9dcea9bcfef1cfd1a71c09fbc1232",
+  "source_sha256_before": "e5817aa9c73f33e525d76ca6bc6af4e4eac9dcea9bcfef1cfd1a71c09fbc1232",
+  "source_unchanged": true,
+  "splits_created": false,
+  "tool": "tools/screen_construction_ppe.py"
+}

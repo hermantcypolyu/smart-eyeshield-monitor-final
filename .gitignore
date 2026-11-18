@@ -54,8 +54,15 @@ data/**/*.sqlite3
 !data/reviewed/audit/*.json
 !data/reviewed/audit/*.csv
 # Contact sheets are rendered images and stay local/ignored. Listed only so the
-# intent is explicit: do NOT add a negation for these.
+# intent is explicit: do NOT add a negation for these. The same rule applies to
+# every later review directory.
 data/reviewed/audit/artifacts/
+data/reviewed/construction_ppe_screen/artifacts/
+# Phase 2B suitability-screen summaries. These are statistics and review queues
+# with no image pixels, so they must be committable even though the surrounding
+# directory holds ignored contact sheets.
+!data/reviewed/construction_ppe_screen/*.json
+!data/reviewed/construction_ppe_screen/*.csv
 
 # Media payloads: ignored globally so raw imagery cannot be committed from any
 # directory. These match files, not directories, so the negations below work.
