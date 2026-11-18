@@ -1,0 +1,7 @@
+split,final_class_id,final_class_name,images,boxes
+train,0,goggles,80,86
+train,1,no_goggles,80,86
+val,0,goggles,20,20
+val,1,no_goggles,20,20
+test,0,goggles,20,20
+test,1,no_goggles,20,22

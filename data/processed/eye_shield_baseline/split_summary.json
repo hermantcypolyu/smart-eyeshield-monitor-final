@@ -1,0 +1,78 @@
+{
+  "source_zip": "/Users/hermanyeung/Downloads/AIOT-MiniProject/data/raw/eye_region_goggles_source_original.zip",
+  "source_zip_sha256": "1ae9c3a835ddc6a5f0d899fce193133add8348d7b74e1dd47adcbbd56673c533",
+  "source_classes": {
+    "0": "eyes_with_goggles",
+    "1": "eyes_without_goggles",
+    "2": "head",
+    "3": "head_with_helmet"
+  },
+  "final_classes": {
+    "0": "goggles",
+    "1": "no_goggles"
+  },
+  "source_to_final_mapping": {
+    "0": 0,
+    "1": 1
+  },
+  "dropped_source_classes": [
+    "head",
+    "head_with_helmet"
+  ],
+  "size_gate_px": 24.0,
+  "quotas": {
+    "train": {
+      "goggles": 80,
+      "no_goggles": 80
+    },
+    "val": {
+      "goggles": 20,
+      "no_goggles": 20
+    },
+    "test": {
+      "goggles": 20,
+      "no_goggles": 20
+    }
+  },
+  "counts": {
+    "train": {
+      "goggles": 80,
+      "no_goggles": 80
+    },
+    "val": {
+      "goggles": 20,
+      "no_goggles": 20
+    },
+    "test": {
+      "goggles": 20,
+      "no_goggles": 20
+    }
+  },
+  "totals": {
+    "goggles": 120,
+    "no_goggles": 120
+  },
+  "duplicates": {
+    "near_duplicate_pairs": 9,
+    "groups": 9,
+    "exact_pairs": 1,
+    "cross_split_groups": 4,
+    "members_dropped_for_leakage": 4,
+    "criteria": {
+      "dhash_hamming_max": 6,
+      "normalised_rmse_max": 20.0
+    }
+  },
+  "rejections": {
+    "below_size_gate": 657,
+    "both_classes_present": 6,
+    "duplicate_group_other_split": 4,
+    "duplicate_of_selected_image": 2,
+    "no_relevant_box": 15,
+    "not_selected_quota_full": 338,
+    "suspect_label_family": 25
+  },
+  "rejections_total": 1047,
+  "annotation_errors": 0,
+  "source_zip_unchanged": true
+}
