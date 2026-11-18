@@ -101,6 +101,9 @@ logs/
 *.log
 *.jsonl
 experiments/*.json
+# The locked-test evaluation report is licence-safe evidence (numbers only, no
+# images or weights), so it is allowed to be committed when a real run produces it.
+!experiments/model_eval_test.json
 experiments/raw/
 
 # OS / editor noise
