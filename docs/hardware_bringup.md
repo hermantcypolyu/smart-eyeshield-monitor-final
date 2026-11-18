@@ -37,7 +37,7 @@ records exactly what was and was not observed.
 | Working firmware with 14 serial commands | Final JSON incident protocol (Phase 4) |
 | Green output GPIO11 independent test | Latched alarm state machine (Phase 4/5) |
 | Red output GPIO12 independent test | Incident IDs, acknowledge, reset |
-| Buzzer GPIO14 passive-PWM **and** active-DC test | Any 7B model |
+| Buzzer GPIO14 active-DC test (verified); passive-PWM path retained but unused | Any 7B model |
 | Red + buzzer combined test | |
 | Non-blocking `millis()` timing | |
 | Configurable active-high / active-low outputs | |
