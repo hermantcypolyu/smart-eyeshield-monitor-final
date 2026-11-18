@@ -631,29 +631,28 @@ Phase 4/5 depends on when a real alarm must pre-empt a running pattern.
 
 ### 9.5 Phase 2A acceptance table — FINAL
 
-Against `plan.md` v2's ten Phase 2A requirements:
+Mapped against `plan.md` v2's own **Phase 2A acceptance** checklist, bullet by
+bullet, because that is the authoritative definition of "complete" for this phase.
 
-| # | Requirement | Evidence | Status |
-|---|---|---|---|
-| 1 | ESP32-S3 board identification and IDE configuration | §1; `esp32:esp32:esp32s3`, core 3.3.11, USB CDC On Boot enabled | **PASS** |
-| 2 | Serial-port identification on macOS | `/dev/cu.usbserial-10` | **PASS** |
-| 3 | Minimal firmware hardware self-test | `SELF_TEST`, 8/8 stages | **PASS** |
-| 4 | Independent green LED test on GPIO11 | `GREEN_ON`/`GREEN_OFF` | **PASS** |
-| 5 | Independent red LED test on GPIO12 | `RED_ON`/`RED_OFF` | **PASS** |
-| 6 | Buzzer test on GPIO14 | `BUZZER_ON`/`BUZZER_OFF` | **PASS** |
-| 7 | Combined red LED and buzzer test | `SELF_TEST` stage 7 | **PASS** |
-| 8 | Non-blocking timing via `millis()` | No blocking `delay()` in the sequence; `STOP_TEST` aborts between steps | **PASS** |
-| 9 | Configurable active-high/low outputs | `*_ACTIVE_HIGH` flags; mixed polarity in use and working | **PASS** |
-| 10 | Serial command menu | 14 commands implemented; 13 actuating/querying commands exercised on hardware. `HELP` is non-actuating and was not separately reported — it prints static text and cannot affect hardware. | **PASS** |
+| `plan.md` acceptance bullet | Evidence | Status |
+|---|---|---|
+| Mandatory `.ino`, config template, README, bring-up guide exist | All four present and committed (`c503e4c`) | **PASS** |
+| Sketch compiles for the recorded ESP32-S3 target | `esp32:esp32:esp32s3`, core 3.3.11 → 308,594 B (23%) / 22,176 B (6%), zero warnings | **PASS** |
+| Sketch uploads to the actual board | `/dev/cu.usbserial-10` at 115200, flash hash verified | **PASS** |
+| Serial Monitor commands respond as documented | 13 of 14 exercised; `HELP` not separately reported (non-actuating) | **PASS** |
+| GPIO11 green operation physically observed | `GREEN_ON`/`GREEN_OFF`, `SELF_TEST` stages 1–2 | **PASS** |
+| GPIO12 red operation physically observed | `RED_ON`/`RED_OFF`, `SELF_TEST` stages 3–4 | **PASS** |
+| GPIO14 buzzer operation physically observed | `BUZZER_ON`/`BUZZER_OFF`, `SELF_TEST` stages 5–6 | **PASS** |
+| `SAFE`, `ALARM`, `SILENCE`, `ALL_OFF` physically verified | All four reported working | **PASS** |
+| `SELF_TEST` physically verified | 8/8 stages, ends with all outputs OFF | **PASS** |
+| `STOP_TEST` physically verified | Mid-sequence interrupt, immediate silence, `STATUS` = inactive | **PASS** |
+| Actual active-high/low behaviour recorded | Green/red active-HIGH, buzzer active-LOW (D-018) | **PASS** |
+| Real buzzer type and voltage recorded | Active module, 3V3, no driver (D-018) | **PASS** |
+| No GPIO overloaded | Buzzer driven directly at 3V3, all outputs stable; current not metered (§8.5) | **PASS, unquantified** |
+| No physical behaviour claimed without user observation | Every row above cites a human report; unreported items marked "not recorded" | **PASS** |
 
-Command coverage — exercised on hardware, as reported by the human:
-
-`GREEN_ON`, `GREEN_OFF`, `RED_ON`, `RED_OFF`, `BUZZER_ON`, `BUZZER_OFF`,
-`ALL_OFF`, `SAFE`, `ALARM`, `SILENCE`, `SELF_TEST`, `STOP_TEST`, `STATUS`.
-
-Not separately reported: `HELP`. It is deliberately listed as the one unexercised
-command rather than folded into the PASS count — it has no hardware effect, so it
-cannot change the acceptance outcome either way.
+The ten required *actions* from the phase instructions are also all satisfied —
+the acceptance checklist above is a superset that covers each of them.
 
 **Phase 2A: COMPLETE and accepted.** Not covered by this phase, and deliberately
 so — see §10.
