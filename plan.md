@@ -1,4 +1,6 @@
-# Full-Feature Prototype Development Plan
+# Full-Feature Prototype Development Plan v2
+
+> **Supersedes all earlier development plans.** This revision explicitly requires real Arduino/ESP32 firmware deliverables from Phase 2A onward. Documentation, diagrams, placeholders, and simulated outputs do not count as firmware implementation.
 
 ## Project
 
@@ -178,40 +180,92 @@ This enables the full hardware and IoT workflow to be proven while dataset prepa
 
 ---
 
-## 4. Repository Structure
+## 4. Mandatory Repository Structure and Deliverables
 
-Retain the existing repository. Reuse its verified Phase 0 environment, configuration, tests, and documentation.
+Retain the existing repository and reuse the verified Phase 0 environment. Do not redesign working Phase 0 or Phase 1 code unless a demonstrated blocker requires the smallest justified correction.
 
-Expected important paths:
+The following paths are mandatory. Files labelled **working implementation** must contain executable code, not placeholders.
 
 ```text
-config/app.yaml
-config/classes.yaml
-data/raw/roboflow_safety_glasses_original.zip
-data/processed/
-models/best.pt
-src/main.py
-src/camera.py
-src/detector.py
-src/observations.py
-src/temporal_filter.py
-src/incident_manager.py
-src/serial_protocol.py
-src/serial_transport.py
-src/event_logger.py
-src/overlay.py
-src/health_monitor.py
-firmware/esp32_eye_shield_monitor/
-training/train_yolov8n.py
-training/evaluate_model.py
-training/colab_training.ipynb
-tests/
-tools/
-experiments/
-docs/
+project-root/
+├── plan.md
+├── README.md
+├── requirements.txt
+├── config/
+│   ├── app.example.yaml
+│   ├── app.yaml                       # local, ignored
+│   └── classes.yaml
+├── data/
+│   ├── raw/
+│   ├── reviewed/
+│   ├── processed/
+│   └── splits/
+├── models/
+│   └── best.pt                        # created by Phase 2B, ignored if large
+├── src/
+│   ├── main.py                        # working implementation by Phase 3
+│   ├── camera.py
+│   ├── detector.py
+│   ├── observations.py
+│   ├── temporal_filter.py
+│   ├── incident_manager.py
+│   ├── serial_protocol.py
+│   ├── serial_transport.py
+│   ├── event_logger.py
+│   ├── overlay.py
+│   └── health_monitor.py
+├── firmware/
+│   └── esp32_eye_shield_monitor/
+│       ├── esp32_eye_shield_monitor.ino   # MANDATORY from Phase 2A
+│       ├── config.example.h               # MANDATORY from Phase 2A
+│       ├── config.h                       # local secrets/settings, ignored
+│       ├── protocol.h                     # required by Phase 4 if separated
+│       ├── alarm_state.h                  # required by Phase 4 if separated
+│       ├── alarm_state.cpp                # required by Phase 4 if separated
+│       └── README.md                      # upload, wiring, commands, libraries
+├── training/
+│   ├── train_yolov8n.py
+│   ├── evaluate_model.py
+│   ├── export_metrics.py
+│   └── colab_training.ipynb
+├── tests/
+├── tools/
+├── experiments/
+└── docs/
+    ├── hardware_bringup.md
+    ├── architecture.md
+    ├── annotation_guideline.md
+    ├── protocol.md
+    ├── blynk_setup.md
+    ├── test_plan.md
+    ├── demo_runbook.md
+    ├── troubleshooting.md
+    ├── decision_log.md
+    └── ai_usage_log.md
 ```
 
-Do not redesign verified Phase 0 code unless an actual blocker is demonstrated.
+### Arduino sketch naming rule
+
+The Arduino sketch folder and the main sketch must have the same base name:
+
+```text
+firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino
+```
+
+Do not create competing sketches such as `test_green.ino`, `test_red.ino`, or `final_v2.ino`. All hardware bring-up commands, the final state machine, serial JSON, and Blynk integration must evolve in the same controlled firmware project.
+
+### Firmware evidence rule
+
+A firmware phase is not complete merely because `.ino` code exists. The completion report must distinguish:
+
+- code written;
+- compile attempted or not attempted;
+- compile result and exact board target;
+- upload attempted or not attempted;
+- physical behaviour observed by the user;
+- remaining unverified electrical assumptions.
+
+Never claim physical success from code inspection alone.
 
 ---
 
@@ -276,28 +330,197 @@ Do not perform exhaustive statistical analysis that does not affect these decisi
 
 ---
 
-## Phase 2A: Hardware Bring-Up in Parallel
+## Phase 2A: Mandatory ESP32-S3 Firmware and Hardware Bring-Up
 
-This phase may begin as soon as the ESP32-S3 and modules are available. It does not depend on model training.
+This phase may begin as soon as the ESP32-S3 and modules are available. It does not depend on model training. This phase requires real Arduino firmware, not only wiring instructions.
 
-### Actions
+### Mandatory implementation files
 
-1. Confirm Arduino IDE can compile and upload to the ESP32-S3.
-2. Identify the actual serial device on macOS.
-3. Test green LED GPIO11 independently.
-4. Test red LED GPIO12 independently.
-5. Test the passive buzzer GPIO14 using PWM/tone.
-6. Confirm active-high or active-low LED behaviour.
-7. Confirm module supply voltage and current requirements.
-8. Test red LED and buzzer together.
-9. Record wiring and verified output behaviour.
+Create or replace placeholders with working content:
 
-### Acceptance
+```text
+firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino
+firmware/esp32_eye_shield_monitor/config.example.h
+firmware/esp32_eye_shield_monitor/README.md
+docs/hardware_bringup.md
+```
 
-- Each output works independently.
-- No GPIO is overloaded.
-- No long blocking delays are required.
-- The wiring diagram matches the actual hardware.
+`config.h` may be created locally from `config.example.h`, but it must remain ignored and must not contain Wi-Fi or Blynk credentials during Phase 2A.
+
+### Arduino and board requirements
+
+- Target: ESP32-S3 UNO-style development board.
+- Initial Arduino IDE profile: `ESP32S3 Dev Module`, unless the real board documentation specifies a more precise profile.
+- Arduino ESP32 core: record the actual installed version.
+- Serial baud rate: 115200.
+- USB CDC on boot: enable when required by the selected ESP32-S3 board/profile.
+- Identify and record the actual macOS serial device, such as `/dev/cu.usbmodem...`.
+- If Arduino CLI or an equivalent toolchain is available, compile from the command line and save the exact command and result.
+- If compilation cannot be performed, state this clearly. Do not claim compile success.
+
+### Pin assignments
+
+| Function | ESP32-S3 pin |
+|---|---:|
+| Green traffic-light input | GPIO11 |
+| Red traffic-light input | GPIO12 |
+| Passive/active buzzer signal | GPIO14 |
+| Module ground | GND |
+| Buzzer module supply | 3V3 only after confirming 3.3 V support |
+| Yellow traffic-light input | Not connected |
+
+The traffic-light wiring assumes a common-cathode/common-GND module. The real PCB labels must be checked before power-on. A bare two-pin buzzer must not be treated as a three-pin module and may require a transistor driver.
+
+### Mandatory `config.example.h` options
+
+Define and document at least:
+
+```cpp
+GREEN_LED_PIN
+RED_LED_PIN
+BUZZER_PIN
+GREEN_LED_ACTIVE_HIGH
+RED_LED_ACTIVE_HIGH
+BUZZER_ACTIVE_HIGH
+BUZZER_IS_PASSIVE
+BUZZER_FREQUENCY_HZ
+SERIAL_BAUD_RATE
+SELF_TEST_STEP_MS
+```
+
+All output polarity must be applied centrally through helper functions, not repeated throughout the sketch.
+
+### Mandatory `.ino` firmware behaviour
+
+`esp32_eye_shield_monitor.ino` must:
+
+1. Compile for the selected ESP32-S3 Arduino target.
+2. Start Serial at 115200 baud.
+3. Configure GPIO11, GPIO12, and GPIO14.
+4. Put all outputs into a known OFF state immediately at startup.
+5. Print a boot banner, pin mapping, polarity, buzzer mode, and unverified-hardware warning.
+6. Provide a line-oriented Serial Monitor command interface.
+7. Accept both LF and CRLF line endings.
+8. Reject unknown commands cleanly without crashing.
+9. Use non-blocking `millis()` timing for self-test and buzzer patterns.
+10. Avoid long blocking `delay()` calls.
+11. Never activate green and red together except during an explicit self-test step.
+12. Stop the buzzer immediately on `BUZZER_OFF`, `ALL_OFF`, or `STOP_TEST`.
+13. Support passive-buzzer tone generation with a configurable initial frequency of 2000 Hz.
+14. Support active-buzzer ON/OFF mode through configuration.
+15. Return readable structured text or JSON-like status responses.
+
+### Required helper functions
+
+Implement or equivalent:
+
+```cpp
+setGreen(bool enabled)
+setRed(bool enabled)
+setBuzzer(bool enabled)
+startBuzzerTone()
+stopBuzzerTone()
+allOutputsOff()
+printStatus()
+startSelfTest()
+stopSelfTest()
+updateSelfTest(unsigned long nowMs)
+```
+
+### Required Serial Monitor commands
+
+Implement exactly these commands during Phase 2A:
+
+```text
+HELP
+STATUS
+GREEN_ON
+GREEN_OFF
+RED_ON
+RED_OFF
+BUZZER_ON
+BUZZER_OFF
+ALL_OFF
+SAFE
+ALARM
+SILENCE
+SELF_TEST
+STOP_TEST
+```
+
+Required command behaviour:
+
+| Command | Green | Red | Buzzer | Notes |
+|---|---:|---:|---:|---|
+| `SAFE` | On | Off | Off | Normal compliant state |
+| `ALARM` | Off | On | On | Hardware alarm test only |
+| `SILENCE` | Off | On | Off | Alarm remains visually active |
+| `ALL_OFF` | Off | Off | Off | Bring-up safety state |
+| `SELF_TEST` | Sequenced | Sequenced | Sequenced | Non-blocking |
+| `STOP_TEST` | Off | Off | Off | Immediate cancellation |
+
+`STATUS` must report:
+
+- green output state;
+- red output state;
+- buzzer state;
+- configured active polarity;
+- buzzer mode and frequency;
+- self-test active/inactive;
+- uptime in milliseconds.
+
+### Non-blocking self-test sequence
+
+The `SELF_TEST` sequence must run without blocking Serial input:
+
+1. Green ON briefly.
+2. Green OFF.
+3. Red ON briefly.
+4. Red OFF.
+5. Buzzer ON briefly.
+6. Buzzer OFF.
+7. Red and buzzer ON briefly.
+8. Finish in `ALL_OFF`.
+
+`STOP_TEST` must interrupt any step immediately.
+
+### Required physical test order
+
+The documentation must instruct the user to test in this exact order:
+
+1. Upload firmware with no external modules connected.
+2. Confirm the boot banner and `STATUS` output.
+3. Disconnect USB power.
+4. Connect only traffic-light GND and green input.
+5. Reconnect USB and test `GREEN_ON` and `GREEN_OFF`.
+6. Disconnect USB.
+7. Add the red input and test `RED_ON` and `RED_OFF`.
+8. Test `SAFE` and `ALARM` without the buzzer connected.
+9. Disconnect USB.
+10. Confirm the buzzer's PCB labels, active/passive type, voltage, and current.
+11. Connect the three-pin buzzer module only if 3.3 V operation is supported.
+12. Test `BUZZER_ON` briefly, followed by `BUZZER_OFF` and `ALL_OFF`.
+13. Test `SELF_TEST` and interrupt it once using `STOP_TEST`.
+14. Return the observed behaviour before Phase 2A is accepted.
+
+### Phase 2A acceptance
+
+Phase 2A is complete only when:
+
+- the mandatory `.ino`, configuration template, README, and bring-up guide exist;
+- the sketch compiles for the recorded ESP32-S3 target, or the inability to compile is explicitly unresolved;
+- the sketch uploads to the actual board;
+- Serial Monitor commands respond as documented;
+- GPIO11 green operation is physically observed;
+- GPIO12 red operation is physically observed;
+- GPIO14 buzzer operation is physically observed;
+- `SAFE`, `ALARM`, `SILENCE`, `ALL_OFF`, `SELF_TEST`, and `STOP_TEST` are physically verified;
+- actual active-high/active-low behaviour is recorded;
+- the real buzzer type and voltage are recorded;
+- no GPIO is overloaded;
+- no physical behaviour is claimed without user observation or captured terminal evidence.
+
+Stop after the bring-up sketch and instructions if physical testing is waiting for the user. Do not begin Blynk, final JSON incident handling, or the final alarm state machine in Phase 2A.
 
 ---
 
@@ -443,6 +666,27 @@ Test:
 
 ## Phase 4: Serial Protocol and Full ESP32 State Machine
 
+### Mandatory firmware upgrade
+
+Phase 4 must upgrade the same Arduino sketch created in Phase 2A:
+
+```text
+firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino
+```
+
+Do not create a competing final sketch. The existing bring-up commands may remain behind a clearly documented diagnostic mode, but normal operation must use newline-delimited JSON and the full latched alarm state machine.
+
+Create these supporting files if separation improves clarity:
+
+```text
+firmware/esp32_eye_shield_monitor/protocol.h
+firmware/esp32_eye_shield_monitor/alarm_state.h
+firmware/esp32_eye_shield_monitor/alarm_state.cpp
+```
+
+The `.ino` remains the required Arduino entry point and must instantiate and call the protocol/state modules.
+
+
 ### First integrate without YOLO
 
 Use a manual trigger or `tools/serial_mock.py` to prove the complete serial/hardware workflow before connecting the AI output.
@@ -487,10 +731,25 @@ ESP32 to laptop:
 - Safe message does not automatically clear the incident.
 - Unsafe reset is rejected.
 - Serial unplug/replug recovers without clearing a latched incident.
+- The upgraded `.ino` compiles and uploads to the actual ESP32-S3.
+- Real Serial Monitor or Python logs demonstrate the required JSON exchanges.
+- Physical LED/buzzer observations match the firmware state.
 
 ---
 
 ## Phase 5: Blynk Integration
+
+Blynk must be integrated into the same firmware project. Update:
+
+```text
+firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino
+firmware/esp32_eye_shield_monitor/config.example.h
+firmware/esp32_eye_shield_monitor/README.md
+docs/blynk_setup.md
+```
+
+`config.h` must contain local credentials and remain ignored. The firmware must continue processing local serial input and physical alarm outputs even when Wi-Fi or Blynk is unavailable.
+
 
 ### Actions
 
@@ -624,7 +883,26 @@ Prepare:
 
 ---
 
-## 6. Priority Classification
+## 6. Mandatory Phase Deliverable Matrix
+
+| Phase | Mandatory executable deliverables | User/hardware evidence required |
+|---|---|---|
+| Phase 0 | Environment checks and configuration loader | Clean-clone checks |
+| Phase 1 | Dataset audit tool and focused tests | Audit report and human semantic review |
+| Phase 2A | **`esp32_eye_shield_monitor.ino`**, `config.example.h` | Compile, upload, Serial Monitor, physical LED/buzzer observations |
+| Phase 2B | Training/evaluation scripts, Colab notebook, `best.pt` | Actual metrics and model load on final laptop |
+| Phase 3 | Complete Python webcam inference application | Live or recorded-video run |
+| Phase 4 | Upgraded **same `.ino`** with JSON and latched state machine | Real serial logs and physical state transitions |
+| Phase 5 | Upgraded **same `.ino`** with Blynk | Mobile notification and command evidence |
+| Phase 6 | Laptop application + final firmware integration | Ten consecutive end-to-end cycles |
+| Phase 7 | Experiment scripts/logs | Raw data supporting reported statistics |
+| Phase 8 | Demo assets and submission package | Timed rehearsal and final checklist |
+
+A phase is not complete when only plans, stubs, or documentation exist.
+
+---
+
+## 7. Priority Classification
 
 ### P0: Must work before anything else
 
@@ -662,7 +940,7 @@ Prepare:
 
 ---
 
-## 7. Agent Working Rules
+## 8. Agent Working Rules
 
 1. Read this file before each new phase.
 2. Work on one phase or explicitly approved parallel phase at a time.
@@ -681,10 +959,13 @@ Prepare:
 
 ---
 
-## 8. Definition of Feature-Complete Prototype
+## 9. Definition of Feature-Complete Prototype
 
 The prototype is feature-complete only when:
 
+- `firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino` exists as the final Arduino entry point.
+- The final `.ino` and any supporting `.h/.cpp` files compile and upload to the real ESP32-S3.
+- Hardware behaviour has been physically observed and recorded, not inferred from code alone.
 - A custom YOLOv8n model runs locally.
 - Live webcam inference distinguishes `goggles`, `no_goggles`, and insufficient evidence.
 - Sustained violation filtering works using elapsed time.
@@ -704,33 +985,42 @@ The prototype is feature-complete only when:
 
 ---
 
-## 9. Immediate Instruction to the AI Agent
+## 10. Immediate Instruction to the AI Agent
 
 Continue from the repository's present state.
 
-If the current Phase 1 audit is still running, finish only the minimum outputs required by Phase 1 of this revised plan. Do not add more optional analyses, contact sheets, output formats, or tests once the required decisions can be made.
+Phase 1 is accepted and closed. Do not add more dataset-audit tooling unless a later, demonstrated data problem requires a small correction.
 
-Then report:
+The immediate next task is **Phase 2A: Mandatory ESP32-S3 Firmware and Hardware Bring-Up**.
 
-- Current completed audit findings.
-- Remaining essential Phase 1 work only.
-- Any human review required.
-- Recommended final two-class dataset construction work.
-- Exact files changed.
-- Tests run.
-- Commit hash.
-- Whether Phase 2A hardware bring-up and Phase 2B dataset/model work can begin.
-
-After approval, prioritise the complete feature path in this order:
+The agent must first inspect the current firmware directory and then create or replace the placeholder with:
 
 ```text
-minimum dataset decision
--> hardware bring-up in parallel
--> final two-class dataset
+firmware/esp32_eye_shield_monitor/esp32_eye_shield_monitor.ino
+firmware/esp32_eye_shield_monitor/config.example.h
+firmware/esp32_eye_shield_monitor/README.md
+docs/hardware_bringup.md
+```
+
+The `.ino` must implement the Phase 2A Serial Monitor commands, non-blocking self-test, configurable polarity, and passive/active buzzer handling defined in this plan.
+
+Before committing, the agent must:
+
+1. Attempt compilation for the selected ESP32-S3 Arduino target when a toolchain is available.
+2. State truthfully whether compile and upload were attempted and succeeded.
+3. Run the existing Python test suite and environment check.
+4. Confirm credentials, `config.h`, archives, build products, and machine-specific files are untracked.
+5. Report the exact physical steps the user must perform.
+6. Stop before claiming Phase 2A success if physical observations are still missing.
+
+After Phase 2A is physically verified, prioritise the complete feature path in this order:
+
+```text
+final two-class dataset
 -> YOLOv8n training
 -> complete laptop AI application
--> serial and ESP32 state machine
--> Blynk
+-> JSON serial and ESP32 latched state machine in the same .ino project
+-> Blynk in the same .ino project
 -> full end-to-end integration
 -> formal testing
 -> demo and submission
