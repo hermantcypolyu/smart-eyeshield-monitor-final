@@ -1,7 +1,8 @@
 # ESP32-S3 Eye-Shield Monitor — Firmware
 
-**Status: Phase 2A hardware bring-up. Working self-test firmware; physical
-behaviour not yet verified by a human.**
+**Status: Phase 2A hardware bring-up. Firmware verified on real hardware
+2026-11-18 — green (GPIO11), red (GPIO12) and buzzer (GPIO14) all physically
+observed. SELF_TEST and STOP_TEST remain the only unverified Phase 2A items.**
 
 This is the mandatory Arduino sketch required by `plan.md` §"Phase 2A". It is
 real firmware, not a placeholder and not a wiring diagram. It drives the three
@@ -9,10 +10,11 @@ physical outputs, exposes a line-oriented Serial Monitor command interface, and
 runs a non-blocking self-test. It is the same sketch that Phases 4 and 5 will
 upgrade in place — there is deliberately no second sketch.
 
-> **No claim of working hardware is made in this file.**
-> Nothing here asserts that any LED or the buzzer actually operates. Every output
-> is **UNVERIFIED** until you connect the board, run the tests in
-> `docs/hardware_bringup.md`, and report what you physically observed.
+> **Scope of the claim.** Green, red and buzzer were observed working on the
+> real board, as were `SAFE`, `ALARM`, `SILENCE` and `ALL_OFF`. `SELF_TEST` and
+> `STOP_TEST` have **not** been run on hardware yet, and nothing here asserts
+> that they work. See `docs/hardware_bringup.md` §9 for exactly what was and was
+> not observed.
 
 ---
 
@@ -75,15 +77,15 @@ needed, which keeps the firmware to the file set that `plan.md` mandates.
 All options live in `config.example.h` (or your local `config.h`). Nothing is
 hard-coded in the sketch.
 
-| Macro | Default | Meaning |
+| Macro | Verified value | Meaning |
 |---|---|---|
 | `GREEN_LED_PIN` | `11` | Green traffic-light input pin |
 | `RED_LED_PIN` | `12` | Red traffic-light input pin |
 | `BUZZER_PIN` | `14` | Buzzer signal pin |
-| `GREEN_LED_ACTIVE_HIGH` | `1` | `1` = active-high, `0` = active-low |
-| `RED_LED_ACTIVE_HIGH` | `1` | `1` = active-high, `0` = active-low |
-| `BUZZER_ACTIVE_HIGH` | `1` | `1` = active-high, `0` = active-low |
-| `BUZZER_IS_PASSIVE` | `1` | `1` = passive piezo (PWM tone), `0` = active buzzer (DC) |
+| `GREEN_LED_ACTIVE_HIGH` | `1` — **measured** | `1` = active-high, `0` = active-low |
+| `RED_LED_ACTIVE_HIGH` | `1` — **measured** | `1` = active-high, `0` = active-low |
+| `BUZZER_ACTIVE_HIGH` | `0` — **measured** | `1` = active-high, `0` = active-low |
+| `BUZZER_IS_PASSIVE` | `0` — **measured** | `1` = passive piezo (PWM tone), `0` = active buzzer (DC) |
 | `BUZZER_FREQUENCY_HZ` | `2000` | Tone frequency for passive buzzers |
 | `BUZZER_PWM_RESOLUTION_BITS` | `10` | LEDC resolution |
 | `BUZZER_DUTY_PERCENT` | `50` | Duty cycle, keeps volume reasonable |
@@ -91,8 +93,15 @@ hard-coded in the sketch.
 | `SERIAL_BAUD_RATE` | `115200` | Serial Monitor baud rate |
 | `SELF_TEST_STEP_MS` | `500` | Dwell time per self-test step |
 
-**The polarity defaults are assumptions.** If an output behaves inverted, set the
-matching `*_ACTIVE_HIGH` to `0` — do not rewire the board to compensate.
+**These values are measured, not assumed.** The traffic light and the buzzer
+differ in polarity on this hardware: the two lamps are active-HIGH, while the
+buzzer module is LOW-level trigger (`BUZZER_ACTIVE_HIGH 0`). That is why each
+output has its own flag. The buzzer is an **active** type, so
+`BUZZER_FREQUENCY_HZ` is ignored and the tone settings are dead code kept only
+for a future passive-piezo swap.
+
+If you replace a module and an output behaves inverted, change the matching
+`*_ACTIVE_HIGH` in `config.h` — do not rewire the board to compensate.
 
 ---
 
@@ -187,13 +196,21 @@ Verified locally with Arduino CLI 1.5.1 and Arduino-ESP32 core **3.3.11**:
   firmware/esp32_eye_shield_monitor --output-dir /tmp/build
 ```
 
-Result: **compiles clean, no warnings**, 316,337 bytes (24%) of program storage,
-22,296 bytes (6%) of dynamic memory.
+Result with the verified configuration (`BUZZER_IS_PASSIVE 0`, buzzer active-low):
+**compiles clean, no warnings**, 308,594 bytes (23%) of program storage,
+22,176 bytes (6%) of dynamic memory.
 
-> Compiling is not uploading, and uploading is not physical verification.
-> A successful compile proves only that the code is valid C++ for the target.
+## Upload
 
-## Upload and wiring
+**Upload speed 115200.** 921600 was unstable on this board and failed; 115200
+uploaded successfully and passed flash hash verification. Set it in
+**Tools → Upload Speed**.
 
-See `docs/hardware_bringup.md` for the wiring table, Arduino IDE settings, the
+Also: **Tools → USB CDC On Boot → Enabled**, and Serial Monitor at 115200 with
+line ending Newline or CRLF.
+
+The board appeared as `/dev/cu.usbserial-10` — a UART-bridge device path, not a
+native-USB `usbmodem` path.
+
+See `docs/hardware_bringup.md` for the wiring table, the full IDE settings, the
 upload procedure, and the mandatory 14-step physical test order.

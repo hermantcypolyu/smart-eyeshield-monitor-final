@@ -217,12 +217,36 @@ literals already reside in flash and `F()` bought nothing there.
 which case extend the table's `reply` field rather than reintroducing a return
 value.
 
+## D-018 — Verified hardware configuration: mixed polarity, active buzzer
+
+**Date:** 2026-11-18 (Phase 2A physical validation)
+**Decision:** Ship `config.example.h` with `GREEN_LED_ACTIVE_HIGH 1`,
+`RED_LED_ACTIVE_HIGH 1`, `BUZZER_ACTIVE_HIGH 0`, `BUZZER_IS_PASSIVE 0`, and
+document **115200** as the upload speed.
+**Why:** These are measured on the real board, not defaults. Two of the four were
+wrong in the Phase 2A draft: the buzzer is an **active** module (its own
+oscillator, so PWM frequency is irrelevant) and it is **LOW-level trigger**. So
+the two subsystems genuinely disagree on polarity, which retroactively justifies
+D-016's per-output flags over a single global polarity macro — one setting could
+not have described this hardware. Upload at 921600 was unstable and failed; 115200
+succeeded with flash hash verification.
+**Hardware:** ESP32-S3 UNO, port `/dev/cu.usbserial-10` (UART bridge), traffic
+light on 3.3 V logic, three-pin buzzer module on 3V3 driven directly from GPIO14
+with no transistor. No level shifter, no external supply, no Arduino Uno.
+**Consequence to carry forward:** because the buzzer is active and ignores
+frequency, Phase 4/5 cannot encode alarm patterns by pitch. Use on/off duty
+patterns, or swap to a passive piezo and set `BUZZER_IS_PASSIVE 1` — the PWM code
+path is retained and still compiles for exactly that case.
+**Revisit if:** the buzzer is replaced with a passive piezo (then set
+`BUZZER_IS_PASSIVE 1`), a module is swapped for an active-high variant, or a 5 V
+module is introduced.
+
 ## Open decisions (to be recorded when resolved)
 
 | ID | Question | Earliest phase |
 |---|---|---|
 | O-01 | Final confidence threshold (validation-selected, then frozen) | 2 |
-| O-02 | Whether LED module is active-high or active-low | 2A — observable now via `SELF_TEST`; record the answer in `config.h`, not here |
+| ~~O-02~~ | ~~Whether LED module is active-high or active-low~~ | **RESOLVED 2026-11-18 — see D-018**, not `SELF_TEST` |
 | O-03 | NVS persistence of incident state across reboot | 5 |
 | O-04 | Exact Blynk virtual-pin allocation | 6 |
 | O-05 | YOLOv8n vs. an alternative, based on measured comparison | 2 |

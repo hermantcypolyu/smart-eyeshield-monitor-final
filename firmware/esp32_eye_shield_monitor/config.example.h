@@ -14,8 +14,11 @@
  * If `config.h` is absent the sketch falls back to the defaults below, so a
  * fresh clone always compiles unmodified.
  *
- * EVERY VALUE HERE IS AN UNVERIFIED ASSUMPTION until the physical test in
- * docs/hardware_bringup.md is performed and its results are recorded.
+ * THE VALUES BELOW ARE THE VERIFIED CONFIGURATION for the actual hardware,
+ * recorded 2026-11-18 from a physical Phase 2A test. Values annotated MEASURED
+ * were observed on the board. Anything not so annotated is still an assumption:
+ * do not label a value MEASURED without observing it yourself. See
+ * docs/hardware_bringup.md section 9.
  * ===========================================================================
  */
 
@@ -26,13 +29,13 @@
  * Pin assignment — must match the physical wiring in docs/hardware_bringup.md
  * ------------------------------------------------------------------------ */
 
-/* Green traffic-light LED signal. */
+/* Green traffic-light LED signal. MEASURED: GPIO11 drives the green lamp. */
 #define GREEN_LED_PIN 11
 
-/* Red traffic-light LED signal. */
+/* Red traffic-light LED signal. MEASURED: GPIO12 drives the red lamp. */
 #define RED_LED_PIN 12
 
-/* Buzzer signal. Passive piezo needs PWM; an active buzzer needs a DC level. */
+/* Buzzer signal. MEASURED: GPIO14 drives the three-pin buzzer module. */
 #define BUZZER_PIN 14
 
 /* ---------------------------------------------------------------------------
@@ -41,15 +44,20 @@
  * 1 = active-HIGH : a logic HIGH level turns the output ON
  * 0 = active-LOW  : a logic LOW  level turns the output ON
  *
- * Both are supported with no code change. Leave at 1 until the physical test
- * tells you otherwise; SELF_TEST makes an inverted output obvious (it comes on
- * when it should be off). Polarity is applied in exactly one place
- * (writeActiveLevel) so changing it is a one-line edit.
+ * These are NOT guesses: both traffic-light channels and the buzzer were
+ * observed on the real hardware on 2026-11-18. The two subsystems differ in
+ * polarity, which is why each output has its own flag rather than one global
+ * setting. Polarity is applied in exactly one place (writeActiveLevel) so
+ * changing it remains a one-line edit.
  * ------------------------------------------------------------------------ */
 
+/* MEASURED: traffic-light inputs are active-HIGH (a HIGH level lights the lamp). */
 #define GREEN_LED_ACTIVE_HIGH 1
 #define RED_LED_ACTIVE_HIGH 1
-#define BUZZER_ACTIVE_HIGH 1
+
+/* MEASURED: this three-pin buzzer module is LOW-level trigger, so ON is a LOW
+ * level on GPIO14. This is a common module convention and is NOT a fault. */
+#define BUZZER_ACTIVE_HIGH 0
 
 /* ---------------------------------------------------------------------------
  * Buzzer type
@@ -59,11 +67,12 @@
  * 0 = active buzzer: has its own oscillator, so it only needs a DC level.
  *     The sketch drives it with digitalWrite and ignores the frequency.
  *
- * If you set 1 and the buzzer sounds continuously at a fixed pitch regardless of
- * BUZZER_FREQUENCY_HZ, it is actually an active buzzer: set this to 0.
+ * MEASURED: the installed module is ACTIVE (it has its own oscillator), so it is
+ * driven as a DC level and BUZZER_FREQUENCY_HZ is ignored. Do not set this back
+ * to 1 unless you physically replace the buzzer with a passive piezo.
  * ------------------------------------------------------------------------ */
 
-#define BUZZER_IS_PASSIVE 1
+#define BUZZER_IS_PASSIVE 0
 
 /* ---------------------------------------------------------------------------
  * Buzzer tone settings (only used when BUZZER_IS_PASSIVE is 1)
@@ -86,7 +95,8 @@
  * Serial and self-test timing
  * ------------------------------------------------------------------------ */
 
-/* Must match the Serial Monitor baud rate exactly. */
+/* Must match the Serial Monitor baud rate exactly. MEASURED: 115200 is stable
+ * for both upload and Serial Monitor on this board. */
 #define SERIAL_BAUD_RATE 115200
 
 /* Dwell time per step of the non-blocking SELF_TEST sequence, in milliseconds.

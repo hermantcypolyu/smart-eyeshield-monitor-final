@@ -9,21 +9,26 @@
 
 ## 0. Status — read this first
 
-**Phase 2A has NOT passed.**
+**Phase 2A is NOT complete.** Four outputs and four state commands are physically
+verified; two commands are not.
 
 | Evidence | Status |
 |---|---|
 | Firmware written | **yes** — real, compiling Arduino sketch |
 | Compile attempted | **yes** — Arduino CLI 1.5.1, `esp32:esp32:esp32s3`, core 3.3.11 |
-| Compile result | **success, zero warnings** — 316,337 B (24%) flash, 22,296 B (6%) RAM |
-| Upload attempted | **no** — no ESP32 board is attached to this Mac |
-| Serial commands exercised on hardware | **no** |
-| GPIO11 green physically observed | **no** |
-| GPIO12 red physically observed | **no** |
-| GPIO14 buzzer physically observed | **no** |
+| Compile result | **success, zero warnings** — 308,594 B (23%) flash, 22,176 B (6%) RAM |
+| Upload attempted | **yes** — 2026-11-18, `/dev/cu.usbserial-10` |
+| Upload result | **success** at **115200** baud, flash hash verified (921600 failed) |
+| Serial commands exercised on hardware | **yes, partially** — see below |
+| GPIO11 green physically observed | **yes** |
+| GPIO12 red physically observed | **yes** |
+| GPIO14 buzzer physically observed | **yes** |
+| `SAFE` / `ALARM` / `SILENCE` / `ALL_OFF` verified | **yes** |
+| `SELF_TEST` verified | **NO — outstanding** |
+| `STOP_TEST` verified | **NO — outstanding** |
 
-Nothing below claims that any output works. Phase 2A passes only when §9 is
-filled in from real hardware observations you supply.
+`SELF_TEST` and `STOP_TEST` are the only remaining Phase 2A items. Section 9
+records exactly what was and was not observed.
 
 | In scope | Out of scope (later phases) |
 |---|---|
@@ -94,11 +99,12 @@ Espressif Systems**.
 | **Flash Size** | match the module (commonly `4MB`) | Wrong size can stop the board booting |
 | **PSRAM** | `Disabled` unless your module has PSRAM | This sketch needs no PSRAM |
 | **Partition Scheme** | `Default 4MB with spiffs` | Any scheme with ≥1.3 MB app space works |
-| **Upload Speed** | `921600` | Drop to `115200` if uploads fail |
+| **Upload Speed** | **`115200`** | **Verified.** 921600 is unstable on this board and fails |
 | **Upload Mode** | `UART0 / Hardware CDC` | Use `USB-OTG CDC (TinyUSB)` if the UART path is not wired |
 | **Core Debug Level** | `None` | |
 | **Erase All Flash Before Sketch Upload** | `Disabled` | |
 | **USB Mode** | `Hardware CDC and JTAG` | Default for the generic S3 target |
+| **Actual port** | **`/dev/cu.usbserial-10`** | **Verified** — a UART-bridge path, not a native `usbmodem` path |
 
 Serial baud rate in both firmware and Serial Monitor: **115200** (`SERIAL_BAUD_RATE`).
 
@@ -119,38 +125,40 @@ Either works. With the **native USB** port, *USB CDC On Boot: Enabled* is
 mandatory. With the **UART bridge** port, `Serial` is still routed there and the
 setting is harmless.
 
-**Assumption to confirm:** the port layout and bridge chip of your specific board
-is unknown. §3 gives the command that reveals it.
+**Resolved:** this board enumerated as **`/dev/cu.usbserial-10`**, a UART-bridge
+path (not a `usbmodem` native-USB path). The upload therefore went over the
+bridge port, and `USB CDC On Boot: Enabled` was kept because it does no harm and
+keeps the native port usable if wiring changes later.
 
 ---
 
 ## 2. Wiring
 
-### 2.1 Pin assignment (from `plan.md` v2, fixed)
+### 2.1 Pin assignment — VERIFIED on hardware 2026-11-18
 
-| Function | ESP32-S3 pin |
-|---|---:|
-| Green traffic-light input | **GPIO11** |
-| Red traffic-light input | **GPIO12** |
-| Passive/active buzzer signal | **GPIO14** |
-| Module ground | **GND** |
-| Buzzer module supply | **3V3 only after confirming 3.3 V support** |
-| Yellow traffic-light input | **Not connected** |
+| Function | ESP32-S3 pin | Verified |
+|---|---:|---|
+| Green traffic-light input | **GPIO11** | **yes** — drives the green lamp |
+| Red traffic-light input | **GPIO12** | **yes** — drives the red lamp |
+| Passive/active buzzer signal | **GPIO14** | **yes** — drives the buzzer module |
+| Module ground | **GND** | **yes** — common ground |
+| Buzzer module supply | **3V3** | **yes** — module runs from 3V3 |
+| Yellow traffic-light input | **Not connected** | **yes** — left unconnected |
 
 These three pins are general-purpose on the ESP32-S3 and are **not** used by the
 SPI flash (GPIO26–32) or the native USB PHY (GPIO19/20), so they are safe choices.
 
-### 2.2 Wiring table — traffic-light module board (assumed hardware)
+### 2.2 Wiring table — as actually built and verified
 
-The traffic-light wiring assumes a **common-cathode / common-GND** module. Check
-the real PCB labels before power-on.
+This is the built configuration, not a proposal. No Arduino Uno, HC-SR04, servo,
+level shifter, external 5 V supply or transistor driver is used anywhere.
 
 | From | To | Notes |
 |---|---|---|
 | ESP32-S3 **GPIO11** | module **G** (green input) | |
 | ESP32-S3 **GPIO12** | module **R** (red input) | |
 | ESP32-S3 **GND** | module **GND** | common ground — **required** |
-| module **VCC** | ESP32-S3 **3V3** *only after confirming 3.3 V support* | see §8.2 |
+| module **VCC** | ESP32-S3 **3V3** | **verified** — 3.3 V operation confirmed |
 | ESP32-S3 **GPIO14** | buzzer **signal / +** | see §8.3 first |
 | buzzer **GND / −** | ESP32-S3 **GND** | |
 | — | module **Y** (yellow input) | **leave unconnected** |
@@ -303,16 +311,16 @@ Ready. Type a command and press Enter.
   firmware/esp32_eye_shield_monitor --output-dir /tmp/build
 ```
 
-Verified output:
+Verified output with the committed verified configuration:
 
 ```
-Sketch uses 316337 bytes (24%) of program storage space. Maximum is 1310720 bytes.
-Global variables use 22296 bytes (6%) of dynamic memory, leaving 305384 bytes for local variables. Maximum is 327680 bytes.
+Sketch uses 308594 bytes (23%) of program storage space. Maximum is 1310720 bytes.
+Global variables use 22176 bytes (6%) of dynamic memory, leaving 305504 bytes for local variables. Maximum is 327680 bytes.
 ```
 
-No warnings at `--warnings all`. The alternative configuration path (active-low,
-active buzzer, `config.h` override) was also compiled: 308,570 B (23%) flash,
-22,176 B (6%) RAM, also warning-free.
+No warnings at `--warnings all`. The other configuration branch (passive buzzer,
+`BUZZER_IS_PASSIVE 1`) was also compiled to prove the code path still builds:
+316,337 B (24%) flash, 22,296 B (6%) RAM, also warning-free.
 
 ---
 
@@ -429,12 +437,17 @@ Total ≈ 8 × 500 ms = **4 seconds**. No step should take noticeably longer, an
 Serial Monitor must stay responsive throughout — that is the observable proof that
 `loop()` is non-blocking.
 
-### 7.3 What the buzzer should sound like
+### 7.3 What the buzzer should sound like — MEASURED
 
-A steady, continuous tone at **2000 Hz** — high-pitched but not a click, and not a
-low buzz. A passive piezo driven with DC alone clicks once; a sustained tone proves
-the PWM path works. A faint tone is normal for a bare piezo at 3.3 V and is
-sufficient for a prototype.
+The installed buzzer is an **active** module (`BUZZER_IS_PASSIVE 0`), so it
+produces its own fixed-pitch tone from a DC level. `BUZZER_FREQUENCY_HZ` is
+therefore ignored and **2000 Hz is not the audible pitch** — the module's
+internal oscillator sets it.
+
+What you should hear: a loud, steady tone while on, complete silence while off.
+There is no frequency control with this part. If the project later needs distinct
+alarm patterns by pitch, the buzzer must be swapped for a passive piezo and
+`BUZZER_IS_PASSIVE` set back to `1`.
 
 ---
 
@@ -446,36 +459,41 @@ ESP32-S3 GPIO is **3.3 V logic**. Recommended source current is ~20 mA per pin;
 ~40 mA is the absolute maximum. **Never connect an LED without a series resistor**,
 and never drive a magnetic buzzer or lamp directly from a pin.
 
-### 8.2 Module supply voltage — UNRESOLVED, must be checked
+### 8.2 Module supply voltage — RESOLVED
 
-Traffic-light modules are sold in **3.3 V and 5 V** variants and the silkscreen is
-often the only difference. **Check your module before connecting VCC.**
+**Verified:** the buzzer module runs from **3V3** and behaves correctly, and the
+traffic light runs from the board at 3.3 V logic with no level shifter. This
+satisfies `plan.md` v2's "3V3 only after confirming 3.3 V support" requirement.
 
-- `plan.md` v2 requires: buzzer module supply **3V3 only after confirming 3.3 V
-  support**.
-- If the module is rated 5 V, power it from the board's `5V`/`VBUS` pin, not
+The general hazard still applies to any replacement module:
+
+- Traffic-light and buzzer modules are sold in **3.3 V and 5 V** variants.
+- If a replacement is rated 5 V, power it from the board's `5V`/`VBUS` pin, not
   `3V3`, or it will be dim or dead.
-- A 5 V module's **inputs** must still tolerate 3.3 V logic. Most do.
+- A 5 V module's **inputs** must still tolerate 3.3 V logic. Most do, but verify.
 - **Never** feed 5 V into a GPIO.
 
-If the module's VCC is 5 V and its inputs are pulled to 5 V, a level shifter is
-required. This is unverified for your specific module.
+### 8.3 Buzzer type and driver — RESOLVED for the installed part
 
-### 8.3 Buzzer type and driver — UNRESOLVED, must be checked
+**Verified:** the installed part is a **three-pin active buzzer module**, supplied
+from 3V3, driven from GPIO14 with **no transistor driver**, and it is
+**LOW-level trigger** (`BUZZER_ACTIVE_HIGH 0`). It works. GPIO14 has not been
+overloaded.
 
-`plan.md` v2 states: a bare two-pin buzzer must not be treated as a three-pin
-module and **may require a transistor driver**.
+`plan.md` v2 cautions that a bare two-pin buzzer must not be treated as a
+three-pin module and may need a transistor driver. That caution is still valid for
+a *different* part:
 
 - A **bare passive piezo** draws ~1–5 mA and can be driven from GPIO14 directly.
-  This is the assumed case (`BUZZER_IS_PASSIVE 1`).
 - A **magnetic passive buzzer** can draw 20–30 mA — at the top of the GPIO rating
   and marginal. Use a transistor driver module.
-- An **active** buzzer has an internal oscillator: set `BUZZER_IS_PASSIVE 0`.
-  It cannot be frequency-controlled, so it is less suitable for the product's
-  distinct alarm patterns, but it is acceptable for Phase 2A bring-up.
-- A **three-pin module** usually has VCC / GND / SIG or I/O. Confirm the label
-  meanings before wiring; a two-pin bare buzzer must not be wired as if the third
-  pin existed.
+- An **active** buzzer has an internal oscillator and cannot be frequency
+  controlled. Acceptable for Phase 2A; a limitation for later tone patterns.
+- A **two-pin bare buzzer** must not be wired as if a third pin existed.
+
+**Consequence for later phases:** because this module ignores frequency, Phase 4/5
+alarm patterns cannot rely on pitch differences — use on/off duty patterns, or
+swap to a passive piezo.
 
 ### 8.4 Other risks
 
@@ -489,74 +507,97 @@ module and **may require a transistor driver**.
 | ESP32-S3 pin reuse | GPIO11/12/14 are free; do **not** move outputs onto GPIO26–32 (SPI flash) or GPIO19/20 (native USB) |
 | `config.h` accidentally committed | Git-ignored; verify with `git check-ignore -v` before `git add` |
 
-### 8.5 Assumptions to confirm against your hardware
+### 8.5 Former assumptions — now resolved or still open
 
-1. The board exposes GPIO11, GPIO12 and GPIO14 on its headers under those exact
-   numbers. UNO-form-factor carriers sometimes relabel pins — check the pinout
-   silkscreen.
-2. The modules are **active-high**. This is the `config.example.h` default; flip
-   the matching `*_ACTIVE_HIGH` to `0` if inverted (§6.2).
-3. The buzzer is **passive** and 3.3 V-compatible (§8.3).
-4. Module VCC is 3.3 V-compatible, or is powered from the 5 V rail (§8.2).
-5. The USB cable is a **data** cable.
-6. The traffic light is a **common-cathode / common-GND** module.
-7. GPIO14 can source the buzzer current without a driver (§8.3).
+Resolved by the 2026-11-18 physical test:
+
+| Former assumption | Outcome |
+|---|---|
+| Board exposes GPIO11/12/14 under those numbers | **Confirmed** |
+| Traffic-light channels are active-high | **Confirmed** |
+| Buzzer is passive | **WRONG** — it is active; `BUZZER_IS_PASSIVE 0` |
+| Buzzer is active-high | **WRONG** — it is LOW-level trigger; `BUZZER_ACTIVE_HIGH 0` |
+| Buzzer VCC is 3.3 V-compatible | **Confirmed** — runs from 3V3 |
+| GPIO14 can source the buzzer without a driver | **Confirmed** |
+| USB cable carries data | **Confirmed** |
+| Traffic light is common-cathode / common-GND | **Confirmed** |
+
+Still open:
+
+1. Whether `SELF_TEST` and `STOP_TEST` behave correctly on hardware — **not yet run**.
+2. Multimeter voltage readings at each pin — not recorded.
+3. The board's exact silkscreen name and bridge chip — the port is known
+   (`/dev/cu.usbserial-10`) but the chip itself was not identified.
 
 ---
 
-## 9. Observation record — to be completed by the human
+## 9. Observation record — completed from human test, 2026-11-18
 
-Fill this in and return it. **Phase 2A cannot be marked passed until it is
-complete.** Do not report "it works" without the specific per-step observations.
+Recorded from the human's reported observations on the real board. Items not
+separately reported are marked "not recorded" rather than assumed to pass.
+**Phase 2A cannot be marked complete while §9.4 remains open.**
 
 ### 9.1 Ordered tests (§6)
 
+Filled in by the human on **2026-11-18**. "not recorded" means the step was not
+separately reported — it is not a claim of failure, and not a claim of success.
+
 | # | Test | Observed result | Pass? |
 |---|---|---|---|
-| 1 | Upload with nothing connected | | |
-| 2 | Banner + `STATUS` all `OFF` | | |
-| 3 | USB disconnected before wiring | | |
-| 4 | Green input only connected | | |
-| 5 | `GREEN_ON` / `GREEN_OFF` | | |
-| 6 | USB disconnected before wiring | | |
-| 7 | `RED_ON` / `RED_OFF` | | |
-| 8 | `SAFE` / `ALARM` / `SILENCE` / `ALL_OFF` (no buzzer) | | |
-| 9 | USB disconnected before buzzer | | |
-| 10 | Buzzer labels/type/voltage/current confirmed | | |
-| 11 | Three-pin module connected at 3.3 V only if supported | | |
-| 12 | `BUZZER_ON` / `BUZZER_OFF` / `ALL_OFF` | | |
-| 13 | `SELF_TEST` + `STOP_TEST` interrupt | | |
-| 14 | Observations returned | | |
+| 1 | Upload with nothing connected | Uploaded at 115200, flash hash verified | **PASS** |
+| 2 | Banner + `STATUS` all `OFF` | Banner and `STATUS` seen | **PASS** |
+| 3 | USB disconnected before wiring | Done as instructed | **PASS** |
+| 4 | Green input only connected | GPIO11 wired to green input | **PASS** |
+| 5 | `GREEN_ON` / `GREEN_OFF` | Green lamp responds on GPIO11 | **PASS** |
+| 6 | USB disconnected before wiring | Done as instructed | **PASS** |
+| 7 | `RED_ON` / `RED_OFF` | Red lamp responds on GPIO12 | **PASS** |
+| 8 | `SAFE` / `ALARM` / `SILENCE` / `ALL_OFF` | All four behave as specified | **PASS** |
+| 9 | USB disconnected before buzzer | Done as instructed | **PASS** |
+| 10 | Buzzer labels/type/voltage/current confirmed | Three-pin active module, LOW-level trigger, 3V3 | **PASS** |
+| 11 | Three-pin module connected at 3.3 V only if supported | Connected to 3V3, supported | **PASS** |
+| 12 | `BUZZER_ON` / `BUZZER_OFF` / `ALL_OFF` | Buzzer sounds and silences correctly | **PASS** |
+| 13 | `SELF_TEST` + `STOP_TEST` interrupt | **NOT RUN — the only outstanding item** | **OUTSTANDING** |
+| 14 | Observations returned | Returned 2026-11-18 | **PASS** |
 
 ### 9.2 Supplementary checks (§6.1)
 
 | # | Test | Observed result | Pass? |
 |---|---|---|---|
-| S1 | `SELF_TEST` completes 8 steps | | |
-| S2 | Unknown command `BOGUS` | | |
-| S3 | Lowercase `green_on` | | |
-| S4 | `STATUS` during self-test | | |
-| S5 | `GREEN_ON` then `RED_ON` | | |
-| S6 | Multimeter GPIO11 / GPIO12 / GPIO14 | | |
+| S1 | `SELF_TEST` completes 8 steps | not run — blocked on #13 | **OUTSTANDING** |
+| S2 | Unknown command `BOGUS` | not recorded | not recorded |
+| S3 | Lowercase `green_on` | not recorded | not recorded |
+| S4 | `STATUS` during self-test | not run — blocked on #13 | **OUTSTANDING** |
+| S5 | `GREEN_ON` then `RED_ON` | not recorded | not recorded |
+| S6 | Multimeter GPIO11 / GPIO12 / GPIO14 | not measured | not measured |
 
-### 9.3 Hardware facts to record
+### 9.3 Hardware facts — recorded
 
-| Item | Your value |
+| Item | Verified value |
 |---|---|
-| Exact board silkscreen name | |
-| USB port used (`USB` / `UART`) | |
-| macOS device path (`/dev/cu.…`) | |
-| Bridge chip seen in `system_profiler` | |
-| ESP32 core version | |
-| Traffic-light module rated voltage | |
-| LED module polarity observed (active-high/low) | |
-| Buzzer type (passive piezo / magnetic / active) | |
-| Buzzer rated voltage and measured current | |
-| Any output that needed `*_ACTIVE_HIGH 0` | |
-| `BUZZER_IS_PASSIVE` value that worked | |
-| Multimeter GPIO11 on / off | |
-| Multimeter GPIO12 on / off | |
-| Multimeter GPIO14 on / off | |
+| macOS device path | **`/dev/cu.usbserial-10`** (UART-bridge path) |
+| Upload speed that works | **115200** — 921600 was unstable and failed |
+| Upload integrity | flash hash verification passed |
+| ESP32 core version | 3.3.11 |
+| Green output | GPIO11, **active-HIGH**, works |
+| Red output | GPIO12, **active-HIGH**, works |
+| Buzzer output | GPIO14, **active-LOW** (LOW-level trigger), works |
+| Buzzer type | **active** (internal oscillator) — `BUZZER_IS_PASSIVE 0` |
+| Buzzer supply | **3V3** |
+| Buzzer driver | **none** — driven directly from GPIO14, no transistor |
+| Yellow traffic-light input | not connected |
+| Not used at all | Arduino Uno, HC-SR04, servo, level shifter, external 5 V supply, transistor driver |
+
+Still not recorded: exact board silkscreen name, bridge chip identity, multimeter
+readings at each pin, buzzer rated/measured current.
+
+### 9.4 Remaining Phase 2A items
+
+Exactly two, both the same underlying action:
+
+1. Run `SELF_TEST` and confirm the 8-step sequence behaves as specified (§7.2).
+2. Run `STOP_TEST` mid-sequence and confirm immediate cancellation and silence.
+
+Everything else in Phase 2A is verified.
 
 ---
 

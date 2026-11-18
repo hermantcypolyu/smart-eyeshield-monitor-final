@@ -368,3 +368,86 @@ replacement trigger.
 
 None of these can be settled from the repository. They are resolved by the
 physical test order in `docs/hardware_bringup.md` §6.
+
+---
+
+## 2026-11-18 — Phase 2A physical validation recorded
+
+**Task given:** update the configuration template, firmware README, bring-up
+guide, decision log and this log with the results of the human's physical
+hardware test; run regression checks; commit; report the commit hash. Mark Phase
+2A complete only if `SELF_TEST` and `STOP_TEST` were also physically verified.
+
+### What the human reported
+
+| Item | Result |
+|---|---|
+| Board port | `/dev/cu.usbserial-10` |
+| Upload speed | 921600 unstable; **115200 works**, flash hash verified |
+| Green | GPIO11, **active-HIGH**, works |
+| Red | GPIO12, **active-HIGH**, works |
+| Buzzer | GPIO14, three-pin **active** module, **active-LOW**, 3V3 |
+| `SAFE` / `ALARM` / `SILENCE` / `ALL_OFF` | all four work |
+| `SELF_TEST` / `STOP_TEST` | **NOT tested** |
+| Not used | Arduino Uno, HC-SR04, servo, level shifter, external 5 V, transistor |
+
+### What changed
+
+- `config.example.h` — polarity and buzzer mode set to the measured values and
+  every measured line annotated `MEASURED`, so no reader mistakes a guess for a
+  measurement. The passive-buzzer tone block is now labelled dead code rather than
+  live configuration.
+- `firmware/.../README.md` — status line, configuration table and upload section
+  now state verified values instead of defaults.
+- `docs/hardware_bringup.md` — §0 status table, §1.4 IDE settings, §1.5 port
+  discussion, §2.1/§2.2 wiring, §5.1 compile figures, §7.3 buzzer description and
+  §8.2/§8.3/§8.5 risks all rewritten from "unresolved" to resolved where the
+  hardware settled them. §9 observation record filled in from the human's report.
+- `docs/decision_log.md` — new D-018 records the verified configuration; O-02
+  (active-high or active-low) closed.
+
+### The one finding that changed a design assumption
+
+The draft assumed a passive, active-high buzzer. Both halves were wrong: the part
+is **active** and **LOW-level trigger**. Two consequences were recorded rather
+than papered over:
+
+1. `BUZZER_FREQUENCY_HZ` is inert on this hardware. The 2000 Hz figure that
+   `plan.md` v2 mandates as the initial frequency is configured but never reaches
+   the buzzer, because an active module generates its own tone. This is stated
+   plainly in §7.3 rather than letting a reader assume pitch is controlled.
+2. Phase 4/5 alarm patterns cannot vary by pitch with this part. Recorded in D-018
+   as a constraint to carry forward, with the passive-piezo swap as the remedy.
+
+Conversely, the two subsystems disagreeing on polarity vindicates the per-output
+`*_ACTIVE_HIGH` flags from D-016: a single global polarity macro could not have
+described this board.
+
+### Claims made and how each was checked
+
+| Claim | Evidence |
+|---|---|
+| The verified configuration compiles | `arduino-cli compile --fqbn esp32:esp32:esp32s3 --warnings all` → 308,594 B (23%) flash, 22,176 B (6%) RAM, zero warnings |
+| Phase 1 still intact | `.venv/bin/python -m pytest -q` → **131 passed** |
+| The passive-buzzer branch was not broken by the config change | Previously compiled at 316,337 B; the branch is unchanged and still selected by `BUZZER_IS_PASSIVE 1` |
+| No secrets in the template | `grep` for password/ssid/token/secret — only comments referencing the future Phase 5 use |
+
+### What the AI did NOT do
+
+- Did **not** mark Phase 2A complete. `SELF_TEST` and `STOP_TEST` were not
+  physically verified, so they are recorded as the only outstanding items.
+- Did **not** claim the buzzer produces a 2000 Hz tone — it cannot, on this part.
+- Did **not** fill in multimeter readings, board silkscreen name, bridge chip or
+  measured current. Those were never reported, so they are recorded as
+  "not recorded" rather than invented.
+- Did **not** upgrade any unmeasured value to `MEASURED`.
+- Did **not** begin Phase 2B, and did not touch any Phase 0 or Phase 1 file.
+
+### Residual uncertainty
+
+1. `SELF_TEST` behaviour on hardware — untested.
+2. `STOP_TEST` mid-sequence cancellation — untested.
+3. `STATUS` during a running self-test — untested (depends on the above).
+4. Unknown command handling, lowercase input, and green-then-red exclusivity —
+   not separately reported.
+5. Pin voltages and buzzer current — not measured.
