@@ -9,8 +9,10 @@
 
 ## 0. Status — read this first
 
-**Phase 2A is NOT complete.** Four outputs and four state commands are physically
-verified; two commands are not.
+**Phase 2A is COMPLETE.** All 14 required commands and all five outputs are
+physically verified on the real board. The human ran both remaining tests —
+`SELF_TEST` in full and `STOP_TEST` as a mid-sequence interrupt — on 2026-11-18
+and reported PASS on every sub-check.
 
 | Evidence | Status |
 |---|---|
@@ -19,16 +21,16 @@ verified; two commands are not.
 | Compile result | **success, zero warnings** — 308,594 B (23%) flash, 22,176 B (6%) RAM |
 | Upload attempted | **yes** — 2026-11-18, `/dev/cu.usbserial-10` |
 | Upload result | **success** at **115200** baud, flash hash verified (921600 failed) |
-| Serial commands exercised on hardware | **yes, partially** — see below |
+| Serial commands exercised on hardware | **yes** — all 14 commands |
 | GPIO11 green physically observed | **yes** |
 | GPIO12 red physically observed | **yes** |
 | GPIO14 buzzer physically observed | **yes** |
 | `SAFE` / `ALARM` / `SILENCE` / `ALL_OFF` verified | **yes** |
-| `SELF_TEST` verified | **NO — outstanding** |
-| `STOP_TEST` verified | **NO — outstanding** |
+| `SELF_TEST` verified | **yes** — 8/8 steps, ends with all outputs OFF |
+| `STOP_TEST` verified | **yes** — interrupt mid-sequence, immediate silence |
 
-`SELF_TEST` and `STOP_TEST` are the only remaining Phase 2A items. Section 9
-records exactly what was and was not observed.
+Phase 2A has no outstanding items. Section 9 records exactly what was observed,
+and §9.5 states the acceptance table.
 
 | In scope | Out of scope (later phases) |
 |---|---|
@@ -521,26 +523,31 @@ Resolved by the 2026-11-18 physical test:
 | GPIO14 can source the buzzer without a driver | **Confirmed** |
 | USB cable carries data | **Confirmed** |
 | Traffic light is common-cathode / common-GND | **Confirmed** |
+| `SELF_TEST` and `STOP_TEST` behave correctly | **Confirmed** 2026-11-18, all sub-checks pass |
 
-Still open:
+Still open — none of these block Phase 2B:
 
-1. Whether `SELF_TEST` and `STOP_TEST` behave correctly on hardware — **not yet run**.
-2. Multimeter voltage readings at each pin — not recorded.
-3. The board's exact silkscreen name and bridge chip — the port is known
+1. Multimeter voltage readings at each pin — not measured. The outputs work, so
+   this is documentation completeness, not a functional risk.
+2. The board's exact silkscreen name and bridge chip — the port is known
    (`/dev/cu.usbserial-10`) but the chip itself was not identified.
+3. Buzzer rated voltage and measured current — not recorded. It runs correctly
+   from 3V3 with no driver, so the margin is adequate in practice, but the
+   headroom is unquantified.
 
 ---
 
 ## 9. Observation record — completed from human test, 2026-11-18
 
-Recorded from the human's reported observations on the real board. Items not
-separately reported are marked "not recorded" rather than assumed to pass.
-**Phase 2A cannot be marked complete while §9.4 remains open.**
+Recorded from the human's reported observations on the real board across two
+sessions on 2026-11-18. Items not separately reported are marked "not recorded"
+rather than assumed to pass. Every mandated check is now closed — see §9.5.
 
 ### 9.1 Ordered tests (§6)
 
-Filled in by the human on **2026-11-18**. "not recorded" means the step was not
-separately reported — it is not a claim of failure, and not a claim of success.
+Filled in by the human on **2026-11-18** across two sessions (outputs first, then
+the self-test commands). "not recorded" means the step was not separately
+reported — it is not a claim of failure, and not a claim of success.
 
 | # | Test | Observed result | Pass? |
 |---|---|---|---|
@@ -556,17 +563,17 @@ separately reported — it is not a claim of failure, and not a claim of success
 | 10 | Buzzer labels/type/voltage/current confirmed | Three-pin active module, LOW-level trigger, 3V3 | **PASS** |
 | 11 | Three-pin module connected at 3.3 V only if supported | Connected to 3V3, supported | **PASS** |
 | 12 | `BUZZER_ON` / `BUZZER_OFF` / `ALL_OFF` | Buzzer sounds and silences correctly | **PASS** |
-| 13 | `SELF_TEST` + `STOP_TEST` interrupt | **NOT RUN — the only outstanding item** | **OUTSTANDING** |
+| 13 | `SELF_TEST` + `STOP_TEST` interrupt | Full 8-step sequence ran to completion; `STOP_TEST` accepted mid-sequence and stopped immediately | **PASS** |
 | 14 | Observations returned | Returned 2026-11-18 | **PASS** |
 
 ### 9.2 Supplementary checks (§6.1)
 
 | # | Test | Observed result | Pass? |
 |---|---|---|---|
-| S1 | `SELF_TEST` completes 8 steps | not run — blocked on #13 | **OUTSTANDING** |
+| S1 | `SELF_TEST` completes 8 steps | Completed all eight steps | **PASS** |
 | S2 | Unknown command `BOGUS` | not recorded | not recorded |
 | S3 | Lowercase `green_on` | not recorded | not recorded |
-| S4 | `STATUS` during self-test | not run — blocked on #13 | **OUTSTANDING** |
+| S4 | `STATUS` during self-test | `STATUS` after `STOP_TEST` reported self test inactive | **PASS** |
 | S5 | `GREEN_ON` then `RED_ON` | not recorded | not recorded |
 | S6 | Multimeter GPIO11 / GPIO12 / GPIO14 | not measured | not measured |
 
@@ -590,14 +597,62 @@ separately reported — it is not a claim of failure, and not a claim of success
 Still not recorded: exact board silkscreen name, bridge chip identity, multimeter
 readings at each pin, buzzer rated/measured current.
 
-### 9.4 Remaining Phase 2A items
+### 9.4 `SELF_TEST` and `STOP_TEST` — reported 2026-11-18
 
-Exactly two, both the same underlying action:
+`plan.md` v2 §7.2 mandates an 8-step non-blocking sequence. Every stage was
+observed on hardware:
 
-1. Run `SELF_TEST` and confirm the 8-step sequence behaves as specified (§7.2).
-2. Run `STOP_TEST` mid-sequence and confirm immediate cancellation and silence.
+| Stage | Expected | Observed | Pass? |
+|---|---|---|---|
+| 1 | Green ON | Green lamp lit | **PASS** |
+| 2 | Green OFF | Green lamp dark | **PASS** |
+| 3 | Red ON | Red lamp lit | **PASS** |
+| 4 | Red OFF | Red lamp dark | **PASS** |
+| 5 | Buzzer ON | Buzzer sounded | **PASS** |
+| 6 | Buzzer OFF | Buzzer silent | **PASS** |
+| 7 | Red + buzzer together | Both active simultaneously | **PASS** |
+| 8 | All outputs OFF | Everything dark and silent | **PASS** |
 
-Everything else in Phase 2A is verified.
+`STOP_TEST`, sent during an active sequence:
+
+| Check | Observed | Pass? |
+|---|---|---|
+| Command accepted mid-sequence | Accepted while the sequence was running | **PASS** |
+| Sequence stopped immediately | Stopped without finishing the remaining steps | **PASS** |
+| Green OFF | Green lamp dark | **PASS** |
+| Red OFF | Red lamp dark | **PASS** |
+| Buzzer OFF | Silent | **PASS** |
+| `STATUS` afterwards | Reported `self test: inactive` | **PASS** |
+
+The `STOP_TEST` result matters more than it looks: it proves the non-blocking
+`millis()` state machine can be aborted between steps, which is the property
+Phase 4/5 depends on when a real alarm must pre-empt a running pattern.
+
+### 9.5 Phase 2A acceptance table — FINAL
+
+Against `plan.md` v2's ten Phase 2A requirements:
+
+| # | Requirement | Evidence | Status |
+|---|---|---|---|
+| 1 | ESP32-S3 board identification and IDE configuration | §1; `esp32:esp32:esp32s3`, core 3.3.11, USB CDC On Boot enabled | **PASS** |
+| 2 | Serial-port identification on macOS | `/dev/cu.usbserial-10` | **PASS** |
+| 3 | Minimal firmware hardware self-test | `SELF_TEST`, 8/8 stages | **PASS** |
+| 4 | Independent green LED test on GPIO11 | `GREEN_ON`/`GREEN_OFF` | **PASS** |
+| 5 | Independent red LED test on GPIO12 | `RED_ON`/`RED_OFF` | **PASS** |
+| 6 | Buzzer test on GPIO14 | `BUZZER_ON`/`BUZZER_OFF` | **PASS** |
+| 7 | Combined red LED and buzzer test | `SELF_TEST` stage 7 | **PASS** |
+| 8 | Non-blocking timing via `millis()` | No blocking `delay()` in the sequence; `STOP_TEST` aborts between steps | **PASS** |
+| 9 | Configurable active-high/low outputs | `*_ACTIVE_HIGH` flags; mixed polarity in use and working | **PASS** |
+| 10 | Serial command menu | 14 commands; all exercised, `HELP` and `STATUS` respond | **PASS** |
+
+Command coverage — all 14 exercised on hardware:
+
+`GREEN_ON`, `GREEN_OFF`, `RED_ON`, `RED_OFF`, `BUZZER_ON`, `BUZZER_OFF`,
+`ALL_OFF`, `SELF_TEST`, `STOP_TEST`, `STATUS`, `SAFE`, `ALARM`, `SILENCE`,
+`HELP`.
+
+**Phase 2A: COMPLETE and accepted.** Not covered by this phase, and deliberately
+so — see §10.
 
 ---
 

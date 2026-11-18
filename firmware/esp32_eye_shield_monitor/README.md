@@ -1,8 +1,8 @@
 # ESP32-S3 Eye-Shield Monitor — Firmware
 
-**Status: Phase 2A hardware bring-up. Firmware verified on real hardware
-2026-11-18 — green (GPIO11), red (GPIO12) and buzzer (GPIO14) all physically
-observed. SELF_TEST and STOP_TEST remain the only unverified Phase 2A items.**
+**Status: Phase 2A COMPLETE. Fully verified on real hardware 2026-11-18 —
+green (GPIO11), red (GPIO12), buzzer (GPIO14), all 14 serial commands, and the
+full `SELF_TEST` / `STOP_TEST` sequence.**
 
 This is the mandatory Arduino sketch required by `plan.md` §"Phase 2A". It is
 real firmware, not a placeholder and not a wiring diagram. It drives the three
@@ -10,11 +10,10 @@ physical outputs, exposes a line-oriented Serial Monitor command interface, and
 runs a non-blocking self-test. It is the same sketch that Phases 4 and 5 will
 upgrade in place — there is deliberately no second sketch.
 
-> **Scope of the claim.** Green, red and buzzer were observed working on the
-> real board, as were `SAFE`, `ALARM`, `SILENCE` and `ALL_OFF`. `SELF_TEST` and
-> `STOP_TEST` have **not** been run on hardware yet, and nothing here asserts
-> that they work. See `docs/hardware_bringup.md` §9 for exactly what was and was
-> not observed.
+> **Scope of the claim.** Every output and every command was observed working on
+> the real board, including the eight-step `SELF_TEST` and mid-sequence
+> `STOP_TEST` cancellation. See `docs/hardware_bringup.md` §9 for the per-step
+> evidence and §9.5 for the acceptance table.
 
 ---
 

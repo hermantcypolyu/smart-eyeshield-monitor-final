@@ -241,6 +241,31 @@ path is retained and still compiles for exactly that case.
 `BUZZER_IS_PASSIVE 1`), a module is swapped for an active-high variant, or a 5 V
 module is introduced.
 
+## D-019 — Phase 2A accepted: non-blocking self-test verified abortable
+
+**Date:** 2026-11-18 (Phase 2A final physical validation)
+**Decision:** Accept Phase 2A as complete and freeze the bring-up firmware as the
+base for Phase 4/5. Do not add further bring-up features.
+**Why:** The human ran the two remaining checks and reported PASS on every
+sub-check. `SELF_TEST` completed all eight steps (green → red → buzzer → red +
+buzzer → all off) and terminated with every output de-energised. `STOP_TEST`,
+sent during an active sequence, was accepted immediately, cancelled the remaining
+steps, drove green, red and buzzer all off, and a following `STATUS` reported
+`self test: inactive`.
+**Why this is a decision and not just a test result:** `STOP_TEST` succeeding is
+what proves the `millis()` state machine can be pre-empted *between* steps. Phase
+4/5 needs exactly that property — a real latched alarm must be able to interrupt a
+running audible/visual pattern without waiting for it to finish, and without a
+blocking `delay()` in the path. Had `STOP_TEST` only worked at a step boundary
+after a full dwell, the timing design would have needed rework before Phase 4. It
+did not.
+**Supersedes:** the "Phase 2A NOT complete" status recorded in `hardware_bringup.md`
+§0 and the outstanding-items note in §9.4 as of commit `d95b667`. Those statements
+were accurate when written and were correct to withhold the claim until the human
+reported back.
+**Revisit if:** the firmware gains a new output or a latched state in Phase 4/5 —
+the self-test sequence and the abort path must then be re-exercised.
+
 ## Open decisions (to be recorded when resolved)
 
 | ID | Question | Earliest phase |

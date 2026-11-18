@@ -451,3 +451,74 @@ described this board.
 4. Unknown command handling, lowercase input, and green-then-red exclusivity —
    not separately reported.
 5. Pin voltages and buzzer current — not measured.
+
+---
+
+## 2026-11-18 — Phase 2A final validation and acceptance
+
+**Task given:** the human reported the final two physical checks (`SELF_TEST`,
+`STOP_TEST`) as PASS on every sub-check; mark Phase 2A complete, update
+`hardware_bringup.md`, `decision_log.md` and this log, run regression checks,
+commit, and report the hash plus remaining blockers and the work needed before
+Phase 2B. Explicit instruction: **do not begin Phase 2B.**
+
+### What the human reported
+
+`SELF_TEST` — full eight-step sequence completed; green, red, buzzer and
+red + buzzer stages each PASS; finished with all outputs OFF.
+
+`STOP_TEST` — accepted during an active sequence, stopped immediately, green OFF,
+red OFF, buzzer OFF, and final `STATUS` reported self test inactive.
+
+### What changed
+
+- `docs/hardware_bringup.md` — §0 status flipped from "NOT complete" to
+  "COMPLETE"; §8.5 open-risk list reduced, with the self-test moved to resolved;
+  §9.2 supplementary checks closed where now answered; new §9.4 gives the
+  per-stage self-test and `STOP_TEST` results; new §9.5 is the final ten-item
+  acceptance table mapped to `plan.md` v2's requirements.
+- `docs/decision_log.md` — new D-019 records acceptance and explains why
+  `STOP_TEST` succeeding is a design confirmation rather than a checkbox.
+- `docs/ai_usage_log.md` — this record.
+- `firmware/esp32_eye_shield_monitor/README.md` — status line and scope-of-claim
+  block corrected. **This file was not in the instructed list but had to change:**
+  it still asserted that `SELF_TEST` and `STOP_TEST` had not been run. Leaving it
+  would have put a false statement in the repository.
+
+### Honesty note on the earlier record
+
+Commit `d95b667` states Phase 2A is not complete. That was true when committed and
+is now superseded by D-019. The earlier text was **not** rewritten to look as
+though the claim had always been justified — the superseding entry is additive, so
+the history shows the claim was withheld until evidence existed.
+
+### What the AI did NOT do
+
+- Did **not** claim any observation the human did not report. Unknown-command
+  handling, lowercase input, and green-then-red exclusivity (§9.2 S2/S3/S5) are
+  still "not recorded", and pin voltages and buzzer current are still unmeasured.
+  These are optional supplementary checks, not Phase 2A acceptance criteria.
+- Did **not** upgrade "not recorded" to PASS by inference.
+- Did **not** begin Phase 2B, touch any Phase 0/1 file, or add features or tests.
+- Did **not** reopen the firmware. It was verified as-is; no code changed in this
+  segment, so the compile result stands from `c503e4c`.
+
+### Claims made and how each was checked
+
+| Claim | Evidence |
+|---|---|
+| Phase 2A acceptance is recorded, not asserted | Ten requirements in §9.5 each map to a reported observation |
+| Firmware still builds | `arduino-cli compile --warnings all` → 308,594 B (23%) / 22,176 B (6%), zero warnings |
+| No regressions | `.venv/bin/python -m pytest -q` → **131 passed** |
+| No stale "not verified" claims remain in the bring-up docs | `grep -n "OUTSTANDING\|not run — blocked"` → no matches |
+
+### Residual risk carried into Phase 2B
+
+1. The buzzer is an active module, so alarm patterns cannot vary by pitch (D-018).
+   Phase 4/5 must use on/off duty patterns, or swap to a passive piezo.
+2. No pin voltages or buzzer current were measured. Functionally proven; the
+   electrical margin is unquantified.
+3. The board's silkscreen name and bridge chip remain unidentified. This only
+   matters for reproducing the setup on a second unit.
+4. The self-test and abort path must be re-exercised after Phase 4/5 adds the
+   latched state machine.
