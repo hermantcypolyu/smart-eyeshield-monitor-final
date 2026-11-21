@@ -41,6 +41,30 @@ Live acceptance presets (see ``docs/v2_live_acceptance.md``):
 Diagnostics never change the frame decision. The duplicate-box count is a
 measurement of already-accepted boxes only; no second NMS and no
 re-filtering is applied.
+
+Timer semantics
+---------------
+``RAW`` is the decision from this single frame; ``STATE`` is the latched,
+time-filtered application state. They deliberately diverge: after an
+incident is confirmed, a frame that sees no face still reports
+``RAW: UNKNOWN`` while ``STATE`` stays ``VIOLATION_CONFIRMED``.
+
+Every duration uses ``time.monotonic()``, never wall-clock time and never
+frame counts, so the threshold is unaffected by frame-rate changes.
+
+    UNKNOWN                 TIMER: IDLE
+    SAFE                    TIMER: IDLE
+    VIOLATION_PENDING       CONFIRM TIMER: X.XX / <confirmation> s
+    VIOLATION_CONFIRMED     CONFIRMED AFTER: X.XX s
+    SAFE_CLEAR_PENDING      CLEAR TIMER: X.XX / <clearance> s
+
+The confirmation duration is measured once, when the incident is created,
+and then held. Continued violation or UNKNOWN frames cannot reset it to
+zero.
+
+A pending violation is cancelled when UNKNOWN lasts longer than
+``--unknown-tolerance-seconds`` after the last accepted VIOLATION frame. A
+SAFE frame cancels it immediately. Neither case creates an incident.
 """
 
 from __future__ import annotations
@@ -93,6 +117,23 @@ class State(str, Enum):
     SAFE_CLEAR_PENDING = "SAFE_CLEAR_PENDING"
 
 
+@dataclass(frozen=True)
+class TemporalStatus:
+    """One filter result, with each timer kept as its own named value.
+
+    A single ``timer_seconds`` used to be reused for every state, so the
+    overlay could only guess which clock it was rendering and a confirmed
+    incident showed ``0.00``. Each field here is ``None`` when it does not
+    apply to ``state``, which makes a wrong timer impossible to show.
+    """
+
+    state: State
+    violation_ratio: float
+    pending_elapsed: float | None = None
+    confirmed_after_seconds: float | None = None
+    safe_clear_elapsed: float | None = None
+
+
 class TemporalFilter:
     """Time-based violation confirmation and safe-clear filter."""
 
@@ -110,11 +151,15 @@ class TemporalFilter:
         self.violation_ratio_required = violation_ratio_required
         self.unknown_tolerance_seconds = unknown_tolerance_seconds
 
+        # All timestamps are time.monotonic() values supplied by the
+        # caller, never wall-clock time.
         self.pending_since: float | None = None
         self.safe_since: float | None = None
         self.last_violation_time: float | None = None
 
         self.confirmed = False
+        self.confirmed_at: float | None = None
+        self.confirmed_after_seconds: float | None = None
         self.incident_id: int | None = None
         self.next_incident_id = 1
 
@@ -148,7 +193,7 @@ class TemporalFilter:
         self,
         observation: Observation,
         now: float,
-    ) -> tuple[State, float, float]:
+    ) -> TemporalStatus:
         self.observations.append((now, observation))
         self._remove_old_samples(now)
 
@@ -163,31 +208,48 @@ class TemporalFilter:
                 self.safe_since = now
                 self.state = State.SAFE
 
-                return self.state, 0.0, ratio
+                return TemporalStatus(
+                    state=self.state,
+                    violation_ratio=ratio,
+                )
 
             if observation == Observation.UNKNOWN:
                 # UNKNOWN must never become SAFE.
                 if self.pending_since is None:
                     self.state = State.UNKNOWN
-                    return self.state, 0.0, ratio
 
-                # Allow a brief missed detection during a pending violation.
+                    return TemporalStatus(
+                        state=self.state,
+                        violation_ratio=ratio,
+                    )
+
+                # Allow a brief missed detection during a pending
+                # violation. Repeat the original elapsed time so the
+                # operator keeps seeing the same running clock.
                 if (
                     self.last_violation_time is not None
                     and now - self.last_violation_time
                     <= self.unknown_tolerance_seconds
                 ):
-                    elapsed = now - self.pending_since
                     self.state = State.VIOLATION_PENDING
 
-                    return self.state, elapsed, ratio
+                    return TemporalStatus(
+                        state=self.state,
+                        violation_ratio=ratio,
+                        pending_elapsed=now - self.pending_since,
+                    )
 
-                # UNKNOWN lasted too long. Cancel the pending violation.
+                # UNKNOWN lasted longer than unknown_tolerance_seconds
+                # past the last accepted VIOLATION frame. Cancel the
+                # pending confirmation; no incident is created.
                 self.pending_since = None
                 self.last_violation_time = None
                 self.state = State.UNKNOWN
 
-                return self.state, 0.0, ratio
+                return TemporalStatus(
+                    state=self.state,
+                    violation_ratio=ratio,
+                )
 
             # Current observation is VIOLATION.
             self.last_violation_time = now
@@ -205,29 +267,51 @@ class TemporalFilter:
                 self.confirmed = True
                 self.incident_id = self.next_incident_id
                 self.next_incident_id += 1
-                self.state = State.VIOLATION_CONFIRMED
-            else:
-                self.state = State.VIOLATION_PENDING
+                self.confirmed_at = now
 
-            return self.state, elapsed, ratio
+                # Freeze the measured duration once, at confirmation, so
+                # later frames cannot overwrite it with 0.00.
+                self.confirmed_after_seconds = elapsed
+                self.state = State.VIOLATION_CONFIRMED
+
+                return TemporalStatus(
+                    state=self.state,
+                    violation_ratio=ratio,
+                    confirmed_after_seconds=elapsed,
+                )
+
+            self.state = State.VIOLATION_PENDING
+
+            return TemporalStatus(
+                state=self.state,
+                violation_ratio=ratio,
+                pending_elapsed=elapsed,
+            )
 
         # A confirmed incident already exists.
         if observation == Observation.SAFE:
             if self.safe_since is None:
                 self.safe_since = now
 
-            clear_elapsed = now - self.safe_since
-
-            # This does not clear the incident.
             self.state = State.SAFE_CLEAR_PENDING
 
-            return self.state, clear_elapsed, ratio
+            return TemporalStatus(
+                state=self.state,
+                violation_ratio=ratio,
+                confirmed_after_seconds=self.confirmed_after_seconds,
+                safe_clear_elapsed=now - self.safe_since,
+            )
 
-        # UNKNOWN or continued VIOLATION cancels safe-clear progress.
+        # UNKNOWN or continued VIOLATION cancels safe-clear progress. The
+        # incident stays latched and its measured duration is preserved.
         self.safe_since = None
         self.state = State.VIOLATION_CONFIRMED
 
-        return self.state, 0.0, ratio
+        return TemporalStatus(
+            state=self.state,
+            violation_ratio=ratio,
+            confirmed_after_seconds=self.confirmed_after_seconds,
+        )
 
 
 def choose_device(requested_device: str) -> str:
@@ -393,22 +477,58 @@ def read_serial_responses(
         print(f"SERIAL READ ERROR: {error}")
 
 
+def format_timer_line(
+    status: TemporalStatus,
+    confirmation_seconds: float,
+    clearance_seconds: float,
+) -> str:
+    """Render the one timing line that matches the current state.
+
+    ``TIMER: 0.00 s`` was previously shown for a confirmed incident because
+    the filter returned 0.0 there. A confirmed incident now shows the
+    measured duration instead, and idle states say so explicitly.
+    """
+
+    if status.state == State.VIOLATION_PENDING:
+        return (
+            f"CONFIRM TIMER: {status.pending_elapsed or 0.0:.2f}"
+            f" / {confirmation_seconds:.2f} s"
+        )
+
+    if status.state == State.VIOLATION_CONFIRMED:
+        if status.confirmed_after_seconds is None:
+            return "CONFIRMED AFTER: unknown"
+
+        return (
+            f"CONFIRMED AFTER: {status.confirmed_after_seconds:.2f} s"
+        )
+
+    if status.state == State.SAFE_CLEAR_PENDING:
+        return (
+            f"CLEAR TIMER: {status.safe_clear_elapsed or 0.0:.2f}"
+            f" / {clearance_seconds:.2f} s"
+        )
+
+    # UNKNOWN and SAFE have no running clock.
+    return "TIMER: IDLE"
+
+
 def draw_status(
     frame,
     observation: Observation,
-    state: State,
-    timer_seconds: float,
-    violation_ratio: float,
+    status: TemporalStatus,
     fps: float,
     incident_id: int | None,
     device: str,
     goggles_threshold: float,
     no_goggles_threshold: float,
+    confirmation_seconds: float,
     clearance_seconds: float,
     serial_connected: bool,
 ) -> None:
     """Draw the operator status panel."""
 
+    state = status.state
     colour = state_colour(state)
 
     panel_right = min(frame.shape[1] - 10, 760)
@@ -430,13 +550,11 @@ def draw_status(
         3,
     )
 
-    if state == State.SAFE_CLEAR_PENDING:
-        timer_description = (
-            f"CLEAR TIMER: {timer_seconds:.2f}"
-            f"/{clearance_seconds:.2f} s"
-        )
-    else:
-        timer_description = f"TIMER: {timer_seconds:.2f} s"
+    timer_description = format_timer_line(
+        status,
+        confirmation_seconds,
+        clearance_seconds,
+    )
 
     serial_status = (
         "CONNECTED"
@@ -448,7 +566,7 @@ def draw_status(
         f"RAW: {observation.value}",
         f"STATE: {state.value}",
         timer_description,
-        f"VIOLATION RATIO: {violation_ratio:.2f}",
+        f"VIOLATION RATIO: {status.violation_ratio:.2f}",
         f"INCIDENT: {incident_id if incident_id is not None else 'NONE'}",
         f"FPS: {fps:.1f}  DEVICE: {device}",
         (
@@ -1318,16 +1436,14 @@ def main() -> int:
                 args.iou,
             )
 
-            state, timer_seconds, violation_ratio = (
-                temporal_filter.update(
-                    observation,
-                    now,
-                )
+            status = temporal_filter.update(
+                observation,
+                now,
             )
 
             trial_session.record(
                 diagnostics,
-                state,
+                status.state,
                 measured_fps,
             )
 
@@ -1335,16 +1451,16 @@ def main() -> int:
             read_serial_responses(serial_connection)
 
             # Transmit only on meaningful state transitions.
-            if state != previous_state:
+            if status.state != previous_state:
                 print(
                     "STATE TRANSITION: "
-                    f"{previous_state} -> {state}"
+                    f"{previous_state} -> {status.state}"
                 )
 
                 # Before an incident exists, SAFE turns
                 # the physical system green.
                 if (
-                    state == State.SAFE
+                    status.state == State.SAFE
                     and temporal_filter.incident_id is None
                 ):
                     send_serial_command(
@@ -1354,7 +1470,7 @@ def main() -> int:
 
                 # Send one ALARM command for each incident.
                 if (
-                    state == State.VIOLATION_CONFIRMED
+                    status.state == State.VIOLATION_CONFIRMED
                     and temporal_filter.incident_id
                     is not None
                     and alarm_sent_for_incident
@@ -1371,19 +1487,18 @@ def main() -> int:
                 # Deliberately do NOT send SAFE after
                 # a confirmed incident. Red and buzzer remain
                 # active until a later explicit command.
-                previous_state = state
+                previous_state = status.state
 
             draw_status(
                 annotated,
                 observation,
-                state,
-                timer_seconds,
-                violation_ratio,
+                status,
                 measured_fps,
                 temporal_filter.incident_id,
                 device,
                 args.goggles_confidence,
                 args.no_goggles_confidence,
+                args.confirmation_seconds,
                 args.clearance_seconds,
                 serial_connection is not None,
             )

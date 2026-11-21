@@ -22,6 +22,11 @@ run does.
 reviewable. It holds no results and must not hold any until a human performs
 the trials.
 
+The overlay timer was corrected before any trial was run. A confirmed incident
+now displays `CONFIRMED AFTER: X.XX s` — the frozen violation duration at the
+moment of confirmation — instead of the misleading `TIMER: 0.00 s` it showed
+previously. See section 6a.
+
 ## 2. Why this exists
 
 V2 test metrics, from `domain_v2_test_report.json`, evaluated once:
@@ -68,7 +73,9 @@ preset changes, every trial must be redone; a mixed-preset CSV is rejected by
 the gate.
 
 IoU 0.25 is the documented fallback if duplicates still appear. It was not
-needed and must not be introduced mid-run.
+needed and must not be introduced mid-run. Whatever value is used, Ultralytics
+NMS remains the only suppression stage: there is no second, application-level
+de-duplication pass, and the demo never re-filters accepted boxes.
 
 Never tune thresholds on the locked public test split.
 
@@ -106,11 +113,16 @@ the run.
 
 3. Hold the pose for at least 3 seconds. Read off the overlay:
 
-   - final application state
+   - final application state (`STATE:`), not the per-frame `RAW:`
    - top accepted class
    - top accepted confidence
    - duplicate accepted boxes
    - application FPS
+
+   For a `no_goggles` trial the `VIOLATION_CONFIRMED` line must show a
+   `CONFIRMED AFTER:` value at or above `--confirmation-seconds`. On the formal
+   2 s prototype run that means `CONFIRMED AFTER: 2.00 s` or more. Record what
+   it actually says; never assume it.
 
 4. Record it:
 
@@ -153,6 +165,68 @@ count means NMS left stacked detections and is reported, not corrected.
 The demo also refuses to start when the weights class map is not exactly
 `{0: goggles, 1: no_goggles}`, and it probes row validity before the trial
 runs, so a schema failure is discovered before a physical trial is wasted.
+
+## 6a. Reading the overlay (raw vs latched)
+
+The overlay shows two different things and they are allowed to disagree.
+
+`RAW:` is the decision for **this single frame**. It is `UNKNOWN`, `SAFE` or
+`VIOLATION`. It has no memory.
+
+`STATE:` is the **latched application state** produced by the temporal filter.
+It has memory and is what the trial is scored on.
+
+So `RAW: UNKNOWN` next to `STATE: VIOLATION_CONFIRMED` is not a bug. When the
+face leaves the frame the frame decision has nothing to judge, while the
+confirmed incident stays latched until it is deliberately cleared. Likewise
+`RAW: SAFE` immediately after confirmation shows `STATE: SAFE_CLEAR_PENDING`,
+not an instant return to `SAFE`: the safe-clear timer must run to completion
+first. **Nothing clears a latched incident except a completed safe-clear
+interval.** An incident is never cleared by losing the face, by a dropped
+frame, or by the process exiting.
+
+Duplicate nested boxes of the same class never create a second observation,
+a second update, or a second incident. One frame produces exactly one
+observation and one incident at most.
+
+### Timer meanings
+
+Timing uses only the injected monotonic clock and never wall-clock time or
+frame counts, so the numbers are identical no matter what FPS the machine
+achieves. Exactly one timer value is meaningful per state:
+
+| `STATE` | Timer line | Meaning |
+| --- | --- | --- |
+| `UNKNOWN` | `TIMER: IDLE` | No accumulation. Any pending confirmation is still being held within its tolerance. |
+| `SAFE` | `TIMER: IDLE` | No incident and no accumulation. |
+| `VIOLATION_PENDING` | `CONFIRM TIMER: X.XX / 2.00 s` | Elapsed continuous violation time against the confirmation requirement. |
+| `VIOLATION_CONFIRMED` | `CONFIRMED AFTER: X.XX s` | **Frozen.** The violation duration at the instant of confirmation. It does not reset and does not keep counting. |
+| `SAFE_CLEAR_PENDING` | `CLEAR TIMER: X.XX / 2.00 s` | Elapsed continuous safe time against the clearance requirement. |
+
+`X.XX` is seconds to two decimals. The requirement shown after the slash comes
+from `--confirmation-seconds` or `--clearance-seconds`, whichever applies.
+
+`CONFIRMED AFTER:` is frozen on purpose. A confirmed incident must show the
+evidence that the filter really did run, so it can never read `0.00 s` on a
+real confirmation. If it ever reads `CONFIRMED AFTER: unknown`, that is a
+defect and the trial must be discarded and reported.
+
+Cancellation is explicit, and neither case creates an incident:
+
+- **pending cancelled by UNKNOWN** — no accepted violation frame for longer
+  than `--unknown-tolerance-seconds` (default 0.35 s) past the last one;
+- **pending cancelled by SAFE** — immediately, on any safe frame.
+
+Interrupting `SAFE_CLEAR_PENDING` with either `VIOLATION` or `UNKNOWN` returns
+to `VIOLATION_CONFIRMED` with the original duration preserved; the clear timer
+starts again from zero next time.
+
+### Fresh process per trial
+
+Every formal trial starts a **new** application process. Do not reuse a
+running demo across trials: incident ids, the latched state and the timers all
+carry over, and the recorded `incident id` would no longer identify a single
+episode. Close the window, then run the next trial's command.
 
 ## 7. Promotion gate
 
@@ -229,3 +303,4 @@ test split.
 | `tools/summarise_v2_live_acceptance.py` | statistics and promotion verdict |
 | `experiments/v2_live_acceptance.csv` | append-only trial log |
 | `tests/test_v2_live_acceptance.py` | logic tests, no camera, serial or model |
+| `tests/test_live_eye_shield_timer.py` | timer and overlay semantics, injected monotonic clock only |
