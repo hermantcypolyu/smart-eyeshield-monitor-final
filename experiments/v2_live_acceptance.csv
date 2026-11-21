@@ -1,0 +1,1 @@
+trial_id,timestamp,model,weights_sha256,condition,pose,expected_state,observed_state,top_class,top_confidence,false_safe,false_alarm,unknown,duplicate_boxes,application_fps,threshold_preset,notes

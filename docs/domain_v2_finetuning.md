@@ -215,6 +215,11 @@ to read first.
 
 ## 9. Live acceptance protocol
 
+> **Superseded.** The authoritative procedure is now
+> [v2_live_acceptance.md](./v2_live_acceptance.md), which defines the threshold
+> presets, the append-only CSV, the recorder and the promotion gate. The summary
+> below is kept as the training-time record only.
+
 Offline metrics on 46 test images, 6 of which are webcam stills, cannot
 establish that the false-safe bug is fixed. A live check is mandatory before any
 V2 claim or promotion.
