@@ -686,6 +686,17 @@ firmware/esp32_eye_shield_monitor/alarm_state.cpp
 
 The `.ino` remains the required Arduino entry point and must instantiate and call the protocol/state modules.
 
+> **Deviation recorded 2026-11-21 (Phase 4A).** The implementation uses a single
+> header, `firmware/esp32_eye_shield_monitor/incident_core.h`, instead of the
+> three files above, and the wire format is **newline-delimited text**, not JSON.
+> Both deviations are deliberate and are argued in `docs/decision_log.md` D-020
+> — one header rather than three because the state, the parser and the replies
+> are one contract and splitting them would let them drift; text rather than
+> JSON because the ESP32-S3 never parses a JSON document, only a fixed command
+> word plus an integer token, and a hand-written parser for that is smaller and
+> cannot allocate. `docs/protocol.md` is the authoritative wire reference. The
+> JSON schemas below are retained as the historical specification.
+
 
 ### First integrate without YOLO
 
@@ -725,6 +736,26 @@ ESP32 to laptop:
 
 - Valid violation latches red LED and buzzer.
 - Duplicate incident ID does not duplicate the incident.
+
+#### Phase 4A status (2026-11-21)
+
+| Requirement | Status |
+| --- | --- |
+| Valid violation latches red + buzzer | **Host-verified** (`test_incident_core.py`); physical re-verification pending |
+| Duplicate incident ID does not duplicate the incident | **Host-verified** |
+| Malformed input does not crash | **Host-verified** (oversized, truncated, empty, unknown word) |
+| Silence affects only the buzzer | **Host-verified** |
+| Acknowledge does not clear the incident | **Host-verified** |
+| Safe does not automatically clear the incident | **Host-verified** |
+| Unsafe reset is rejected | **Host-verified**, four distinct refusal reasons |
+| Unplug/replug recovers without clearing the latch | **Host-verified** (link invalidation); physical pending |
+| `.ino` compiles for the ESP32-S3 | **YES** — 312170 B flash (23%), 22216 B RAM (6%) |
+| Uploads and shows correct physical behaviour | **NOT YET RUN** — requires the human and the board |
+| Real logs demonstrate the exchanges | **NOT YET RUN** |
+
+Physical re-verification is the remaining Phase 4 gate and is recorded in
+`docs/hardware_bringup.md` §11.3. Nothing in this table is promoted to PASS on
+the strength of host tests alone.
 - Malformed JSON does not crash firmware.
 - Silence affects only the buzzer.
 - Acknowledge does not clear the incident.

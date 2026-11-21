@@ -673,3 +673,71 @@ Deliberately absent, to keep this phase minimal and unblocked:
 
 The latching behaviour the product needs is **not** implemented here. This sketch
 only proves the three outputs can be driven independently and together.
+
+---
+
+## 11. Phase 4A — incident lifecycle upgrade (implemented 2026-11-21)
+
+The latching behaviour that §10 listed as absent is now implemented. The sketch
+gained a portable, Arduino-free state machine
+([`incident_core.h`](../firmware/esp32_eye_shield_monitor/incident_core.h)) and
+the text protocol documented in [protocol.md](./protocol.md).
+
+### 11.1 What changed on the board
+
+| Area | Before | Now |
+|---|---|---|
+| Latch | `SILENCE` was a pin preset | `INCIDENT`/`SILENCE`/`ACKNOWLEDGE`/`RESET` are latched states |
+| Reset | no gate | two-step `RESET_READY <id>` → `RESET` handshake |
+| Link health | none | `HEARTBEAT` required within 3000 ms or `RESET` is refused |
+| Yellow | absent | advisory channel, **compiled out** (see §11.2) |
+| Presets | the only commands | retained as diagnostic overrides, with `WARN PRESET_OVERRIDE` |
+
+Green (GPIO11), red (GPIO12) and buzzer (GPIO14) pins, polarities and the
+`SELF_TEST` sequence are **unchanged**. The Phase 2A acceptance table in §9.5
+still describes this hardware.
+
+### 11.2 Yellow traffic-light input — STILL NOT WIRED
+
+§2.1, §2.2 and §9.3 record the yellow module input as **left unconnected**, and
+that is still true. The firmware therefore ships with:
+
+```c
+#define YELLOW_LED_ENABLED 0
+```
+
+`STATUS` reports `yellow : DISABLED (input not wired)`. Any yellow command
+answers `ERR YELLOW_DISABLED`.
+
+Yellow is **advisory only**: it never gates a reset and is not part of any
+safety claim. Enabling it requires, in this order:
+
+1. Choose a free GPIO and wire module **Y** to it through the module's own input.
+2. Measure the pin with a multimeter to establish `YELLOW_LED_ACTIVE_HIGH`
+   rather than assuming it. §8.2 is the precedent: the module supply was
+   assumed 5 V and measured 3.3 V.
+3. Set `YELLOW_LED_ENABLED 1` and the pin/polarity in local `config.h`.
+4. Re-run `SELF_TEST` and record the observation in §9.5.
+
+Until all four steps are recorded here, the yellow channel must stay disabled.
+
+### 11.3 Verification status
+
+| Check | Result |
+|---|---|
+| Firmware compiles for `esp32:esp32:esp32s3` | **PASS** — 312170 bytes flash (23%), 22216 bytes RAM (6%) |
+| Host tests of the state machine | **PASS** — `tests/test_incident_core.py`, 37 tests |
+| Host tests of the operator lifecycle | **PASS** — `tests/test_incident_lifecycle.py`, 38 tests |
+| Physical wiring re-verification | **NOT YET RUN** — the pins are unchanged from §9.5, but the new sketch must be re-flashed and re-tested before any claim is made |
+
+The physical re-test is deliberately **not** claimed here. The pin assignment
+did not change, so §9.5 should still hold, but "should" is not "measured". The
+21-step procedure is in [v2_live_acceptance.md](./v2_live_acceptance.md).
+
+### 11.4 ESP32-S3 USB CDC caveat
+
+`Serial` on the ESP32-S3 is USB CDC, not a UART bridge, so **`Serial.print()` is
+non-blocking and buffered**. A line written immediately before `ESP.restart()`
+or a reset can be lost. This is why every command replies with exactly one `OK`
+or `ERR` line rather than relying on later output: a missing reply must always
+mean a dead link, never a slow one.

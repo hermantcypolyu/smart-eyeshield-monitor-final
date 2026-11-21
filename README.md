@@ -115,37 +115,54 @@ Secrets (`BLYNK_AUTH_TOKEN`, Wi-Fi, Roboflow keys) never enter source control:
 | [experiments/](./experiments) | Machine-readable experiment records (AI metrics, system trials) |
 | [docs/](./docs) | Architecture, protocol, test plan, runbook, decision log, AI usage log |
 
-Files under `src/`, `training/`, and some of `tools/` that belong to later phases
-exist now as **documented stubs**: a docstring naming the phase, a `PHASE`
-constant, and no behaviour. They are placeholders for the structure required by
-plan §4, not partial implementations. Only `src/config.py`, `tools/env_check.py`,
-and `tools/camera_check.py` contain working code in Phase 0.
+Files under `src/` and `training/` that belong to later phases exist now as
+**documented stubs**: a docstring naming the phase, a `PHASE` constant, and no
+behaviour. They are placeholders for the structure required by plan §4, not
+partial implementations.
+
+Working code today, and nothing else is claimed: `src/config.py`,
+`tools/env_check.py`, `tools/camera_check.py`, `tools/incident_lifecycle.py`,
+the live demos `tools/live_eye_shield_demo.py` and
+`tools/live_eye_shield_demo_v1_backup.py`, the acceptance tooling
+`tools/run_v2_live_acceptance.py` + `tools/summarise_v2_live_acceptance.py` +
+`tools/v2_acceptance_schema.py`, and the firmware sketch with
+`firmware/esp32_eye_shield_monitor/incident_core.h`.
 
 ## 6. Current phase status
 
 | Phase | Name | Status |
 |---|---|---|
 | 0 | Repository and reproducibility | **Complete** |
-| 1 | Dataset audit | Not started |
-| 2 | YOLOv8n baseline | Not started |
-| 3 | Laptop inference application | Not started |
-| 4 | Serial protocol and simulator | Not started |
-| 5 | ESP32 hardware node | Not started |
+| 1 | Dataset audit | **Complete** (verdict: source export rejected for training) |
+| 2 | YOLOv8n baseline | **V1 trained; V2 fine-tune unvalidated** |
+| 3 | Laptop inference application | **Live demo working** (V1 weights, V2 unpromoted) |
+| 4 | Serial protocol and ESP32 state machine | **Host-verified; physical re-verification pending** |
+| 5 | ESP32 hardware node | Wiring validated in Phase 2A; incident outputs not physically re-verified |
 | 6 | Blynk integration | Not started |
 | 7 | Full integration | Not started |
-| 8 | Formal experiments | Not started |
+| 8 | Formal experiments | **V2 acceptance tooling ready; live trials not run** |
 | 9 | Demonstration and documentation | Not started |
 
-No AI metrics, latency figures, or detection results have been produced yet, and
-none are claimed.
+Two facts bound what may be claimed:
+
+**No V2 acceptance trials exist.** `experiments/v2_live_acceptance.csv` is
+header-only by design — it is populated only by a human-observed physical trial,
+never by a script. The summariser therefore returns
+`V2 NOT APPROVED` on the current repository state, and `models/best.pt` remains
+the V1 weights (SHA-256 `9366b73b…fa3591`). V2 is **unpromoted**.
+
+**No AI metrics are claimed for V2.** V1 metrics exist in
+`experiments/`; nothing measured on V2 supersedes them until the trials run and
+the summariser approves.
 
 ## 7. Documentation
 
 - [docs/architecture.md](./docs/architecture.md) — component boundaries and ownership
-- [docs/protocol.md](./docs/protocol.md) — serial JSON schema
+- [docs/protocol.md](./docs/protocol.md) — serial text protocol, reset handshake, link health
 - [docs/annotation_guideline.md](./docs/annotation_guideline.md) — two-class labelling rules
 - [docs/dataset_audit.md](./docs/dataset_audit.md) — Phase 1 audit of the source export (verdict: rejected for training)
 - [docs/hardware_bringup.md](./docs/hardware_bringup.md) — Phase 2A ESP32-S3 wiring, IDE settings, and physical test script
+- [docs/v2_live_acceptance.md](./docs/v2_live_acceptance.md) — the 45-trial V2 acceptance procedure and its promotion gate
 - [docs/test_plan.md](./docs/test_plan.md) — Phase 0 checks and future test matrix
 - [docs/troubleshooting.md](./docs/troubleshooting.md) — common setup failures
 - [docs/blynk_setup.md](./docs/blynk_setup.md) — mobile dashboard (Phase 6 placeholder)

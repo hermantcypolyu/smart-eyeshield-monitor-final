@@ -70,6 +70,35 @@ Not yet executed. Listed so later phases report against fixed IDs.
 | `tests/test_incident_manager.py` | 3 | One incident per episode, reset eligibility |
 | `tests/test_serial_protocol.py` | 4 | Round trips, malformed JSON, duplicates, version mismatch |
 | `tests/test_recorded_video.py` | 3 | Deterministic end-to-end behaviour on recorded clips |
+| `tests/test_incident_core.py` | **4A** | Firmware incident state machine, compiled from `incident_core.h` and driven over stdin/stdout (37) |
+| `tests/test_incident_lifecycle.py` | **4A** | Operator lifecycle: latch, acknowledge, recovery, reset handshake (38) |
+| `tests/test_live_eye_shield_timer.py` | **4A** | Overlay timer semantics and frozen confirmation duration (27) |
+| `tests/test_v2_live_acceptance.py` | **4A** | Acceptance schema, false-safe gate, promotion verdict (no camera or model) |
+
+### Phase 4A — what the incident tests actually prove
+
+The firmware state machine and the operator lifecycle are two halves of one
+contract, so they are tested separately and asserted against the **same** reply
+strings, which live only in `incident_core.h` under `namespace reply`. A change
+to a literal fails the Python tests rather than silently changing the wire
+format.
+
+The tests that matter most, stated as the property they protect:
+
+| Property | Test |
+| --- | --- |
+| No ordinary `SAFE` clears a latched incident | `test_09_safe_frames_never_clear_a_latched_incident` |
+| `UNKNOWN` is never reported as `SAFE` | `test_03_unknown_never_becomes_safe` |
+| Acknowledge silences the buzzer but keeps red | `test_13_acknowledge_silences_buzzer_but_keeps_red` |
+| Reset is refused without acknowledge | `test_19_reset_rejected_without_acknowledge` |
+| Reset is refused without proven recovery | `test_20_reset_rejected_without_safe_recovery` |
+| Reset is refused on a stale `RESET_READY` token | `test_22_reset_rejected_when_link_invalid` (core) |
+| A completed handshake does not re-send `RESET` | `test_35_completed_handshake_does_not_re_send_reset` |
+| A refused reset re-asserts state | `test_33_reset_refusal_releases_token_and_reasserts_state` |
+| `ALL_OFF` cannot be used to extinguish a live alarm | `test_incident_core` — `ALL_OFF` refusal cases |
+
+Firmware compilation is a separate gate and is not covered by pytest: see
+`docs/hardware_bringup.md` §11.3 for the recorded `arduino-cli` result.
 
 ## Reporting rule
 

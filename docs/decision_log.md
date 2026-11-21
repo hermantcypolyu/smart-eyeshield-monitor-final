@@ -266,6 +266,64 @@ reported back.
 **Revisit if:** the firmware gains a new output or a latched state in Phase 4/5 —
 the self-test sequence and the abort path must then be re-exercised.
 
+## D-020 — Incident lifecycle is a single portable state machine, not sketch logic
+
+**Date:** 2026-11-21 (Phase 4A)
+**Decision:** Put the latched incident state machine in a plain C++ header,
+`firmware/esp32_eye_shield_monitor/incident_core.h`, with no Arduino dependency,
+and keep the `.ino` responsible only for pin writing and serial framing. Mirror
+the operator-facing half in a pure-Python module, `tools/incident_lifecycle.py`.
+**Why:** A latched alarm is the one behaviour the product cannot get wrong, and
+behaviour that only exists inside a `.ino` cannot be tested without a board. Both
+halves are now driven by host tests (`tests/test_incident_core.py`,
+`tests/test_incident_lifecycle.py` — 75 tests) that compile the real header and
+run the real module. This is the same reasoning as D-017: make the decision
+testable, then let the thin platform layer call it.
+**Consequence:** the reply strings are the single source of truth for the wire
+format and the tests assert against those exact literals, so the two ends cannot
+drift apart silently. Documented in `docs/protocol.md`.
+**Revisit if:** the firmware needs a state the core cannot express without
+knowing about pins, which would mean the split is in the wrong place.
+
+## D-021 — Reset requires a two-step handshake, and refusals re-assert state
+
+**Date:** 2026-11-21 (Phase 4A)
+**Decision:** A reset is `RESET_READY <id>` → `OK RESET_READY` → `RESET` →
+`OK RESET_ACCEPTED`. Neither side alone may clear the lamp. On any refusal the
+laptop clears its pending token and re-sends the steady-state command for its own
+state. The `RESET_ACCEPTED` transition is marked drained so the ordinary command
+drain cannot send a second `RESET` for a closed incident.
+**Why:** A single `RESET` command would make the firmware trust an unverified
+laptop assertion, so a stale or replayed command could clear a live alarm. The
+token is bound to the *current* incident id, so a token from an earlier episode is
+refused. The re-assert rule exists because a rejected reset would otherwise leave
+the board in `READY_TO_RESET` while the laptop still displays a latched incident —
+a divergence between the two authorities, which is exactly the class of bug the
+handshake is meant to prevent.
+**Verified:** `tests/test_incident_lifecycle.py` tests 31-35 cover the happy path,
+both refusals, a stray reply with no request in flight, and the double-send
+regression.
+**Revisit if:** a second control surface (Blynk, dashboard) is added — it must
+use the same handshake rather than writing pins directly.
+
+## D-022 — Yellow channel ships disabled, because it is not wired
+
+**Date:** 2026-11-21 (Phase 4A)
+**Decision:** Add the optional yellow traffic-light channel but compile it out by
+default (`YELLOW_LED_ENABLED 0`). `STATUS` reports
+`yellow : DISABLED (input not wired)` and every yellow command answers
+`ERR YELLOW_DISABLED`.
+**Why:** `hardware_bringup.md` §2.1, §2.2 and §9.3 record the module's **Y**
+input as left unconnected. Shipping a channel that reports success on an
+unconnected pin would be a fabricated observation of the same kind D-018 was
+careful to avoid. Yellow is advisory only and gates no safety behaviour, so
+disabling it costs nothing.
+**Enabling it requires, in order:** wire the pin, measure polarity with a
+multimeter (do not assume — §8.2 is the precedent), set the config, and re-run
+`SELF_TEST` with the result recorded in §9.5.
+**Revisit if:** the yellow input is wired and measured; then record the
+measurement before setting the flag.
+
 ## Open decisions (to be recorded when resolved)
 
 | ID | Question | Earliest phase |
@@ -273,5 +331,6 @@ the self-test sequence and the abort path must then be re-exercised.
 | O-01 | Final confidence threshold (validation-selected, then frozen) | 2 |
 | ~~O-02~~ | ~~Whether LED module is active-high or active-low~~ | **RESOLVED 2026-11-18 — see D-018**, not `SELF_TEST` |
 | O-03 | NVS persistence of incident state across reboot | 5 |
+| O-06 | Yellow traffic-light input pin and polarity (input not wired) | 4A |
 | O-04 | Exact Blynk virtual-pin allocation | 6 |
 | O-05 | YOLOv8n vs. an alternative, based on measured comparison | 2 |

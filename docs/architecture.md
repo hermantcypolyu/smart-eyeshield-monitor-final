@@ -16,6 +16,27 @@ are created in later phases and must respect these boundaries.
 | Silence / Acknowledge / Reset commands | Blynk → ESP32-S3 | Accepted/rejected by the device state machine, not by the dashboard |
 | Event logging (JSONL/CSV) | Laptop | Single writer avoids interleaved files |
 
+## Phase 4A amendment — the two authorities
+
+Phase 4A refined the split above. There are exactly **two** authorities and each
+has one job:
+
+| Authority | Owns | Must never |
+| --- | --- | --- |
+| Laptop (`tools/incident_lifecycle.py`) | Detection, temporal filtering, incident identity, operator-facing state, whether recovery is proven | Assert that the lamp is off |
+| ESP32-S3 (`incident_core.h`) | The physical latch, the buzzer, and whether a reset is permitted | Decide that the wearer is safe |
+
+The only channel between them is a text line protocol (`docs/protocol.md`).
+Neither side can clear an alarm alone: silence needs the laptop's `ACKNOWLEDGE`,
+and clearing needs `RESET_READY <id>` followed by `RESET`, with the firmware
+re-checking its own preconditions in a fixed order and refusing with a specific
+reason. A refusal is not a no-op — the laptop re-asserts its state, because the
+failure mode to avoid is the two authorities disagreeing.
+
+Both sides are pure logic with the platform layer kept thin, so the whole
+contract is host-tested. The firmware header has no Arduino dependency; the
+sketch only reads pins, calls the core, and writes replies.
+
 ## Data flow
 
 ```text
@@ -73,3 +94,5 @@ measured with `time.monotonic()`.
 | `src/overlay.py` | On-frame status rendering | 3 |
 | `src/health_monitor.py` | Link/camera/Blynk health aggregation | 4 |
 | `src/main.py` | Wiring and run loop | 3 |
+| `tools/incident_lifecycle.py` | **Done (4A)** — operator state machine, acknowledgement, recovery, reset handshake |
+| `firmware/.../incident_core.h` | **Done (4A)** — Arduino-free latch, buzzer intent, reset gate |

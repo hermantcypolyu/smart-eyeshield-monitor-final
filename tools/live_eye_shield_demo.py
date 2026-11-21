@@ -89,6 +89,12 @@ from ultralytics import YOLO
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools.incident_lifecycle import (
+    AlarmIntent,
+    IncidentLifecycle,
+    OperatorState,
+    ResetBlocker,
+)
 from tools.v2_acceptance_schema import (
     CONDITIONS,
     CSV_COLUMNS as ACCEPTANCE_COLUMNS,
@@ -371,6 +377,27 @@ def state_colour(state: State) -> tuple[int, int, int]:
     }[state]
 
 
+def operator_colour(state: OperatorState) -> tuple[int, int, int]:
+    """Return BGR panel colour for the latched operator state.
+
+    The panel is driven by the operator lifecycle, not the raw frame state,
+    because the thing the operator must be able to read at a glance is
+    "is an incident open", not "what did this one frame contain".
+    """
+
+    return {
+        OperatorState.STARTUP: (150, 150, 150),
+        OperatorState.WAITING_FOR_TARGET: (150, 150, 150),
+        OperatorState.SAFE: (0, 210, 0),
+        OperatorState.VIOLATION_PENDING: (0, 210, 255),
+        OperatorState.ALARM_LATCHED: (0, 0, 255),
+        OperatorState.SAFE_CLEAR_PENDING: (255, 180, 0),
+        OperatorState.SAFE_RECOVERED: (0, 200, 255),
+        OperatorState.ACKNOWLEDGED: (0, 120, 255),
+        OperatorState.FAULT: (255, 0, 255),
+    }[state]
+
+
 def detection_colour(class_name: str) -> tuple[int, int, int]:
     """Return BGR bounding-box colour."""
 
@@ -455,13 +482,56 @@ def send_serial_command(
         return False
 
 
+@dataclass(frozen=True)
+class SerialReply:
+    """One parsed line from the ESP32.
+
+    The firmware answers every command with ``OK ...`` or ``ERR CODE
+    DETAIL``. Parsing it is what lets the laptop drive the real reset gate
+    instead of assuming a command worked because it was written to the port.
+    """
+
+    raw: str
+    ok: bool
+    code: str
+    detail: str = ""
+
+    @property
+    def rejected(self) -> bool:
+        return not self.ok
+
+
+def parse_serial_reply(line: str) -> SerialReply | None:
+    """Parse one firmware reply line, or return None for noise.
+
+    Boot banners, self-test chatter and echoed commands are not protocol
+    replies, so they must not be mistaken for a rejected command.
+    """
+
+    text = line.strip()
+
+    if text.startswith("OK"):
+        code = text[2:].strip()
+        head, _, detail = code.partition(" ")
+        return SerialReply(raw=text, ok=True, code=head, detail=detail.strip())
+
+    if text.startswith("ERR"):
+        body = text[3:].strip()
+        head, _, detail = body.partition(" ")
+        return SerialReply(raw=text, ok=False, code=head, detail=detail.strip())
+
+    return None
+
+
 def read_serial_responses(
     connection: serial.Serial | None,
-) -> None:
-    """Print all ESP32 replies currently waiting in the buffer."""
+) -> list[SerialReply]:
+    """Drain and parse all ESP32 replies currently waiting in the buffer."""
+
+    replies: list[SerialReply] = []
 
     if connection is None:
-        return
+        return replies
 
     try:
         while connection.in_waiting:
@@ -470,11 +540,20 @@ def read_serial_responses(
                 errors="replace",
             ).strip()
 
-            if line:
-                print(f"ESP32 RX: {line}")
+            if not line:
+                continue
+
+            print(f"ESP32 RX: {line}")
+
+            parsed = parse_serial_reply(line)
+
+            if parsed is not None:
+                replies.append(parsed)
 
     except serial.SerialException as error:
         print(f"SERIAL READ ERROR: {error}")
+
+    return replies
 
 
 def format_timer_line(
@@ -513,6 +592,56 @@ def format_timer_line(
     return "TIMER: IDLE"
 
 
+def lifecycle_timer_line(
+    lc_status,
+    confirmation_seconds: float,
+    clearance_seconds: float,
+) -> str:
+    """Render the operator-level clock, mirroring ``format_timer_line``.
+
+    A confirmed incident must show the measured duration, never ``0.00``.
+    ``LifecycleStatus.safe_clear_required`` is the clearance budget, so the
+    confirmation budget has to be passed in explicitly rather than reused.
+    """
+
+    if lc_status.state is OperatorState.VIOLATION_PENDING:
+        return (
+            f"CONFIRM TIMER: {lc_status.pending_elapsed or 0.0:.2f}"
+            f" / {confirmation_seconds:.2f} s"
+        )
+
+    if lc_status.confirmed_after_seconds is not None:
+        return (
+            f"CONFIRMED AFTER: {lc_status.confirmed_after_seconds:.2f} s"
+        )
+
+    if lc_status.state is OperatorState.SAFE_CLEAR_PENDING:
+        return (
+            f"CLEAR TIMER: {lc_status.safe_clear_elapsed or 0.0:.2f}"
+            f" / {clearance_seconds:.2f} s"
+        )
+
+    return "TIMER: IDLE"
+
+
+def reset_hint(lc_status, blocker: ResetBlocker) -> str:
+    """Explain what still blocks a reset, in operator words."""
+
+    if lc_status.incident_id is None:
+        return "RESET: nothing to reset"
+
+    if blocker is ResetBlocker.NONE:
+        return "RESET: READY (press R)"
+
+    return {
+        ResetBlocker.NO_INCIDENT: "RESET: nothing to reset",
+        ResetBlocker.NOT_ACKNOWLEDGED: "RESET blocked: not acknowledged (A)",
+        ResetBlocker.NOT_SAFE_RECOVERED: "RESET blocked: goggles not verified",
+        ResetBlocker.HEALTH_INVALID: "RESET blocked: camera/model unhealthy",
+        ResetBlocker.LINK_INVALID: "RESET blocked: ESP32 link unhealthy",
+    }[blocker]
+
+
 def draw_status(
     frame,
     observation: Observation,
@@ -525,14 +654,49 @@ def draw_status(
     confirmation_seconds: float,
     clearance_seconds: float,
     serial_connected: bool,
+    lc_status=None,
+    blocker: ResetBlocker = ResetBlocker.NO_INCIDENT,
+    last_tx: str = "",
+    last_rx: str = "",
+    model_name: str = "",
 ) -> None:
-    """Draw the operator status panel."""
+    """Draw the operator status panel.
+
+    ``lc_status`` is optional so the frame-level overlay remains usable on
+    its own (and in tests). When present it drives the panel colour and the
+    incident/acknowledge/reset rows, which are the rows an operator actually
+    acts on.
+    """
 
     state = status.state
-    colour = state_colour(state)
+
+    if lc_status is not None:
+        colour = operator_colour(lc_status.state)
+        headline = f"STATE: {lc_status.state.value}"
+        timer_description = lifecycle_timer_line(
+            lc_status,
+            confirmation_seconds,
+            clearance_seconds,
+        )
+        incident_text = (
+            lc_status.incident_id
+            if lc_status.incident_id is not None
+            else "NONE"
+        )
+    else:
+        colour = state_colour(state)
+        headline = f"STATE: {state.value}"
+        timer_description = format_timer_line(
+            status,
+            confirmation_seconds,
+            clearance_seconds,
+        )
+        incident_text = (
+            incident_id if incident_id is not None else "NONE"
+        )
 
     panel_right = min(frame.shape[1] - 10, 760)
-    panel_bottom = min(frame.shape[0] - 10, 275)
+    panel_bottom = min(frame.shape[0] - 10, 330)
 
     cv2.rectangle(
         frame,
@@ -550,12 +714,6 @@ def draw_status(
         3,
     )
 
-    timer_description = format_timer_line(
-        status,
-        confirmation_seconds,
-        clearance_seconds,
-    )
-
     serial_status = (
         "CONNECTED"
         if serial_connected
@@ -564,21 +722,46 @@ def draw_status(
 
     lines = [
         f"RAW: {observation.value}",
-        f"STATE: {state.value}",
+        headline,
         timer_description,
         f"VIOLATION RATIO: {status.violation_ratio:.2f}",
-        f"INCIDENT: {incident_id if incident_id is not None else 'NONE'}",
-        f"FPS: {fps:.1f}  DEVICE: {device}",
-        (
-            f"THRESHOLDS: goggles={goggles_threshold:.2f} "
-            f"no_goggles={no_goggles_threshold:.2f}"
-        ),
-        (
-            f"SERIAL: {serial_status}  |  "
-            "BLYNK: NOT CONFIGURED"
-        ),
-        "Press Q or ESC to quit",
+        f"INCIDENT: {incident_text}",
     ]
+
+    if lc_status is not None:
+        ack_text = "YES" if lc_status.acknowledged else "NO"
+        recovered_text = "YES" if lc_status.safe_recovered else "NO"
+        lines.extend(
+            [
+                f"ALARM: {lc_status.alarm.value}  "
+                f"ACKNOWLEDGED: {ack_text}  "
+                f"SAFE RECOVERED: {recovered_text}",
+                reset_hint(lc_status, blocker),
+            ]
+        )
+
+        if lc_status.fault_reason:
+            lines.append(f"FAULT: {lc_status.fault_reason}")
+
+    lines.extend(
+        [
+            f"FPS: {fps:.1f}  DEVICE: {device}",
+            (
+                f"THRESHOLDS: goggles={goggles_threshold:.2f} "
+                f"no_goggles={no_goggles_threshold:.2f}"
+            ),
+            (
+                f"SERIAL: {serial_status}  |  "
+                "BLYNK: NOT CONFIGURED"
+            ),
+            f"TX: {last_tx or '-'}   RX: {last_rx or '-'}",
+        ]
+    )
+
+    if model_name:
+        lines.append(f"MODEL: {model_name}")
+
+    lines.append("Keys: A=acknowledge  R=reset  Q/ESC=quit")
 
     y = 38
 
@@ -1271,10 +1454,13 @@ def main() -> int:
                 f"at {args.serial_baud}"
             )
 
-            # Startup UNKNOWN must not claim SAFE.
+            # Startup must not claim SAFE and must not claim an alarm.
+            # WAITING_FOR_TARGET is the honest description of an unknown
+            # scene, and the firmware maps it to green-off/red-off rather
+            # than borrowing ALL_OFF, which is diagnostic-only.
             send_serial_command(
                 serial_connection,
-                "ALL_OFF",
+                "HEARTBEAT",
             )
 
             time.sleep(0.1)
@@ -1301,8 +1487,26 @@ def main() -> int:
     frame_times: deque[float] = deque(maxlen=30)
     previous_time = time.monotonic()
 
+    lifecycle = IncidentLifecycle(
+        confirmation_seconds=args.confirmation_seconds,
+        clearance_seconds=args.clearance_seconds,
+    )
+
     previous_state: State | None = None
-    alarm_sent_for_incident: int | None = None
+
+    # The single source of truth for what the operator sees. Every serial
+    # command below is derived from a lifecycle transition, so the laptop and
+    # the firmware cannot disagree about whether an incident is open.
+    lc_status = lifecycle.status()
+    blocker = lifecycle.reset_blocker()
+    last_tx = ""
+    last_rx = ""
+    serial_ok = serial_connection is not None
+
+    # The firmware refuses a RESET when it has not heard from us for
+    # HEARTBEAT_TIMEOUT_S, so the link must be kept warm well inside that.
+    heartbeat_period = 1.0
+    last_heartbeat = 0.0
 
     trial_session = TrialSession()
     trial_session._candidate_confidence = args.candidate_confidence
@@ -1447,47 +1651,98 @@ def main() -> int:
                 measured_fps,
             )
 
-            # Receive ESP32 responses without blocking video.
-            read_serial_responses(serial_connection)
+            # Receive ESP32 responses without blocking video. A read
+            # failure means the board is unreachable, which is a reset
+            # blocker: we must never accept a reset we cannot confirm.
+            try:
+                replies = read_serial_responses(serial_connection)
+                if serial_connection is not None:
+                    serial_ok = True
+            except Exception as error:  # noqa: BLE001 - link loss is not fatal
+                print(f"SERIAL LINK LOST: {error}")
+                replies = []
+                serial_ok = False
 
-            # Transmit only on meaningful state transitions.
+            for reply in replies:
+                last_rx = reply.raw
+
+                if reply.ok and reply.code == "RESET_ACCEPTED":
+                    # The firmware is the authority. resolve_pending_command
+                    # clears the local latch to match it.
+                    print("RESET CONFIRMED BY ESP32")
+
+                elif reply.rejected:
+                    print(
+                        f"ESP32 REJECTED {reply.code} "
+                        f"{reply.detail}".strip()
+                    )
+
+                # Finish or abandon the handshake this reply implies. A
+                # refused RESET re-asserts our steady state so the firmware
+                # cannot be left holding a stale token.
+                follow_up = lifecycle.resolve_pending_command(reply)
+
+                if follow_up is not None:
+                    if send_serial_command(serial_connection, follow_up):
+                        last_tx = follow_up
+                    else:
+                        serial_ok = False
+
+            lifecycle.set_health(
+                camera_ok=ok,
+                model_ok=True,
+                serial_ok=serial_ok,
+                now=now,
+            )
+
+            lc_status = lifecycle.update(
+                observation,
+                now,
+                violation_ratio=status.violation_ratio,
+                pending_since=temporal_filter.pending_since,
+                safe_since=temporal_filter.safe_since,
+            )
+
+            # Recovery is only proven by the detector itself. Recording it
+            # here, rather than in the key handler, is what stops an operator
+            # from acknowledging and clearing an incident that was never
+            # actually resolved.
+            if lc_status.safe_recovered:
+                lifecycle.mark_onboard_verified()
+
             if status.state != previous_state:
                 print(
                     "STATE TRANSITION: "
                     f"{previous_state} -> {status.state}"
                 )
+                previous_state = status.state
 
-                # Before an incident exists, SAFE turns
-                # the physical system green.
-                if (
-                    status.state == State.SAFE
-                    and temporal_filter.incident_id is None
-                ):
-                    send_serial_command(
-                        serial_connection,
-                        "SAFE",
+            if (
+                serial_connection is not None
+                and now - last_heartbeat >= heartbeat_period
+            ):
+                if send_serial_command(serial_connection, "HEARTBEAT"):
+                    last_heartbeat = now
+                else:
+                    serial_ok = False
+
+            command = lifecycle.take_pending_command()
+
+            if command is not None:
+                if send_serial_command(serial_connection, command):
+                    last_tx = command
+                else:
+                    # A failed write is link loss, not a delivered command.
+                    serial_ok = False
+                    lifecycle.set_health(
+                        camera_ok=ok,
+                        model_ok=True,
+                        serial_ok=False,
+                        now=now,
+                        reason="SERIAL WRITE FAILED",
                     )
 
-                # Send one ALARM command for each incident.
-                if (
-                    status.state == State.VIOLATION_CONFIRMED
-                    and temporal_filter.incident_id
-                    is not None
-                    and alarm_sent_for_incident
-                    != temporal_filter.incident_id
-                ):
-                    if send_serial_command(
-                        serial_connection,
-                        "ALARM",
-                    ):
-                        alarm_sent_for_incident = (
-                            temporal_filter.incident_id
-                        )
-
-                # Deliberately do NOT send SAFE after
-                # a confirmed incident. Red and buzzer remain
-                # active until a later explicit command.
-                previous_state = status.state
+            blocker = lifecycle.reset_blocker()
 
             draw_status(
                 annotated,
@@ -1501,6 +1756,11 @@ def main() -> int:
                 args.confirmation_seconds,
                 args.clearance_seconds,
                 serial_connection is not None,
+                lc_status=lc_status,
+                blocker=blocker,
+                last_tx=last_tx,
+                last_rx=last_rx,
+                model_name=weights.name,
             )
 
             if not args.headless:
@@ -1513,6 +1773,36 @@ def main() -> int:
 
                 if key in (ord("q"), 27):
                     break
+
+                if key == ord("a"):
+                    # Same call a future dashboard button will make. There is
+                    # no second code path that can bypass the latch.
+                    ok_ack, reason = lifecycle.acknowledge(now)
+                    print(
+                        f"ACKNOWLEDGE: {reason}"
+                        if ok_ack
+                        else f"ACKNOWLEDGE REJECTED: {reason}"
+                    )
+
+                if key == ord("r"):
+                    # An intent, not a reset. The firmware decides, and
+                    # nothing is displayed as cleared until it accepts.
+                    started, reason = lifecycle.request_reset(now)
+
+                    if not started:
+                        print(f"RESET REJECTED: {reason}")
+                    else:
+                        token = lifecycle.pending_reset_command
+
+                        if send_serial_command(serial_connection, token):
+                            last_tx = token
+                            print(f"RESET HANDSHAKE STARTED: {token}")
+                        else:
+                            print("RESET NOT SENT: serial link unavailable")
+                            lifecycle.pending_reset_command = None
+
+                    blocker = lifecycle.reset_blocker()
+                    lc_status = lifecycle.status()
 
             processed_frames += 1
 

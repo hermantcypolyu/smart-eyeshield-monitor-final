@@ -92,6 +92,46 @@
 #define BUZZER_LEDC_CHANNEL 0
 
 /* ---------------------------------------------------------------------------
+ * Optional yellow traffic-light channel — DISABLED BY DEFAULT
+ *
+ * IMPORTANT: the yellow input is NOT CONNECTED on the current hardware. It was
+ * recorded as not connected in docs/hardware_bringup.md (sections 2.1, 2.2 and
+ * 9) and in plan.md. Do not enable this, and do not pick a pin, until you have
+ * physically wired it and verified it the same way green and red were verified
+ * on 2026-11-18.
+ *
+ * Yellow is a *third* advisory lamp, not part of the safety interlock: green and
+ * red remain the only channels that carry the safe/alarm decision, and they keep
+ * their mutual exclusion. Yellow is compiled out by default so no unverified pin
+ * is ever driven.
+ * ------------------------------------------------------------------------ */
+
+/* 1 = yellow channel present and wired. Leave at 0 until verified in person. */
+#define YELLOW_LED_ENABLED 0
+
+/* Only meaningful when YELLOW_LED_ENABLED is 1. There is no verified pin for
+ * this channel, so 0 means "unassigned" rather than "GPIO0". */
+#define YELLOW_LED_PIN 0
+
+/* Same convention as the other channels: 1 = active-HIGH, 0 = active-LOW.
+ * UNVERIFIED — this is a placeholder, not a measurement. */
+#define YELLOW_LED_ACTIVE_HIGH 1
+
+/* Blink half-period in milliseconds for YELLOW_SLOW_BLINK / YELLOW_FAST_BLINK. */
+#define YELLOW_SLOW_BLINK_MS 500
+#define YELLOW_FAST_BLINK_MS 150
+
+/* ---------------------------------------------------------------------------
+ * Incident lifecycle timing
+ * ------------------------------------------------------------------------ */
+
+/* How long the board waits for any line from the laptop before it treats the
+ * link as dead. A RESET is refused while the link is stale, so a crashed laptop
+ * cannot clear a latched alarm. Keep this comfortably larger than the laptop's
+ * heartbeat period (the demo sends HEARTBEAT every 1 s). */
+#define HEARTBEAT_TIMEOUT_MS 3000
+
+/* ---------------------------------------------------------------------------
  * Serial and self-test timing
  * ------------------------------------------------------------------------ */
 

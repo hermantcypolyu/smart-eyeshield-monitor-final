@@ -37,6 +37,25 @@
 #include <Arduino.h>
 
 /*
+ * The incident lifecycle lives in a plain-C++ header that has no Arduino
+ * dependency, so the same code the board runs is also exercised on the host by
+ * tests/test_incident_core.py. Behaviour that only exists in this .ino is
+ * behaviour nobody can regression-test without plugging in a board.
+ */
+#include "incident_core.h"
+
+/* The core lives in its own namespace so its names can never collide with an
+ * Arduino or core-library symbol. A short alias keeps this sketch readable. */
+using eye_shield::CoreOutputs;
+using eye_shield::FwCommand;
+using eye_shield::FwState;
+using eye_shield::IncidentCore;
+using eye_shield::ParsedCommand;
+using eye_shield::fwCommandName;
+using eye_shield::parseFwCommand;
+namespace reply = eye_shield::reply;
+
+/*
  * config.h is machine-specific and git-ignored. If absent, the committed
  * defaults in config.example.h are used, so a fresh clone always compiles.
  */
@@ -65,6 +84,10 @@
 static bool g_green_on = false;
 static bool g_red_on = false;
 static bool g_buzzer_on = false;
+
+/* The single authority on incident state. Declared here rather than next to its
+ * command handlers because STATUS and the pin helpers below need to read it. */
+static IncidentCore g_core(HEARTBEAT_TIMEOUT_MS);
 
 static inline void writeActiveLevel(uint8_t pin, bool active_high, bool on) {
   digitalWrite(pin, (on == active_high) ? HIGH : LOW);
@@ -270,9 +293,19 @@ static void updateSelfTest(unsigned long nowMs) {
  * Status and help
  * =========================================================================== */
 
+static const char *yellowModeName(IncidentCore::YellowMode mode) {
+  switch (mode) {
+    case IncidentCore::YellowMode::Off:       return "OFF";
+    case IncidentCore::YellowMode::Steady:    return "STEADY";
+    case IncidentCore::YellowMode::SlowBlink: return "SLOW_BLINK";
+    case IncidentCore::YellowMode::FastBlink: return "FAST_BLINK";
+  }
+  return "UNKNOWN";
+}
+
 static void printStatus() {
   Serial.println(F("---------------- STATUS ----------------"));
-  Serial.println(F("firmware        : Phase 2A bring-up (self-test only)"));
+  Serial.println(F("firmware        : Phase 4A incident lifecycle + bring-up presets"));
   Serial.print(F("config          : "));
   Serial.println(USING_LOCAL_CONFIG ? F("local config.h in use") : F("defaults from config.example.h"));
   Serial.println(F("output          : pin      polarity      state"));
@@ -308,6 +341,20 @@ static void printStatus() {
     Serial.print(F("/"));
     Serial.println(SELF_TEST_STEPS);
   }
+  Serial.print(F("lifecycle       : "));
+  Serial.print(fwStateName(g_core.state()));
+  Serial.print(F("  incident="));
+  Serial.print(g_core.incident_id());
+  Serial.print(F("  acked="));
+  Serial.print(g_core.acknowledged() ? F("yes") : F("no"));
+  Serial.print(F("  link="));
+  Serial.println(g_core.link_alive(millis()) ? F("alive") : F("stale"));
+  Serial.print(F("yellow          : "));
+  if (!g_core.yellowEnabled()) {
+    Serial.println(F("DISABLED (input not wired)"));
+  } else {
+    Serial.println(yellowModeName(g_core.yellowMode()));
+  }
   Serial.print(F("uptime_ms       : "));
   Serial.println(millis());
   Serial.println(F("----------------------------------------"));
@@ -316,46 +363,54 @@ static void printStatus() {
 static void printHelp() {
   Serial.println(F("--------------------------------------------------------------"));
   Serial.println(F("Commands (Serial Monitor, line ending Newline or CRLF):"));
-  Serial.println(F("  SAFE        green on,  red off, buzzer off"));
-  Serial.println(F("  ALARM       green off, red on,  buzzer on"));
-  Serial.println(F("  SILENCE     green off, red on,  buzzer off"));
+  Serial.println(F("  SAFE        output preset: green on,  red off, buzzer off"));
+  Serial.println(F("  ALARM       output preset: green off, red on,  buzzer on"));
+  Serial.println(F("  SILENCE     output preset: green off, red on,  buzzer off"));
   Serial.println(F("  GREEN_ON    green on,  red off (mutually exclusive)"));
   Serial.println(F("  GREEN_OFF   green off, red unchanged"));
   Serial.println(F("  RED_ON      red on,    green off (mutually exclusive)"));
   Serial.println(F("  RED_OFF     red off,   green unchanged"));
   Serial.println(F("  BUZZER_ON   buzzer on, LEDs unchanged"));
   Serial.println(F("  BUZZER_OFF  buzzer off, LEDs unchanged"));
-  Serial.println(F("  ALL_OFF     every output off"));
+  Serial.println(F("  ALL_OFF     every output off (refused during an incident)"));
   Serial.println(F("  SELF_TEST   run the 8-step non-blocking sequence"));
   Serial.println(F("  STOP_TEST   abort the sequence, all outputs off"));
   Serial.println(F("  STATUS      pins, polarity, buzzer mode, state, uptime"));
   Serial.println(F("  HELP        this list"));
   Serial.println(F("--------------------------------------------------------------"));
+  Serial.println(F("Incident lifecycle (driven by the laptop):"));
+  Serial.println(F("  HEARTBEAT              proves the link is alive"));
+  Serial.println(F("  NO_INCIDENT <id>       clear: no incident is in progress"));
+  Serial.println(F("  INCIDENT <id>          violate: latch the alarm"));
+  Serial.println(F("  ACKNOWLEDGE <id>       operator has seen the alarm"));
+  Serial.println(F("  RESET_READY <id>       laptop asserts recovery is proven"));
+  Serial.println(F("  RESET                  clear, only after RESET_READY <id>"));
+  Serial.println(F("Yellow is advisory and DISABLED on this build (input not wired)."));
+  Serial.println(F("--------------------------------------------------------------"));
 }
 
 /* ===========================================================================
  * Command handling
+ *
+ * Two kinds of command arrive on the same line protocol:
+ *
+ *   - output presets (SAFE / ALARM / GREEN_ON / ...), which write the pins
+ *     directly and exist for bring-up and for the SELF_TEST path;
+ *   - incident-lifecycle commands (NO_INCIDENT / INCIDENT / ACKNOWLEDGE /
+ *     RESET_READY / RESET / HEARTBEAT), which are delegated to IncidentCore.
+ *
+ * Only the core may clear a latched alarm, and it only does so through the
+ * ACKNOWLEDGE -> RESET_READY -> RESET handshake. A preset can force the pins but
+ * deliberately reports that it overrode the lifecycle, so an operator watching
+ * the log can tell the difference between "the system cleared this" and "a human
+ * typed a preset".
  * =========================================================================== */
 
-/*
- * Command table.
- *
- * A table keeps every command visible in one place, and lookup uses
- * String::equals() which compares in place: comparing a String against
- * F("...") would construct a temporary String per comparison, because WString
- * has no operator==(const __FlashStringHelper *). On ESP32, PSTR() expands to
- * the identity macro, so string literals already live in flash and F() gains
- * nothing in a comparison.
- *
- * The lookup returns an INDEX, not a pointer. That is deliberate: the Arduino
- * builder generates a prototype for every sketch function and pastes them all
- * ahead of every definition, so a function whose signature names a custom type
- * fails to compile with "'X' does not name a type". Keeping the signature to
- * plain types avoids that without needing an extra header.
- */
-struct CommandEntry {
+/* Output presets. Kept identical to the verified Phase 2A behaviour so the
+ * bring-up procedure in docs/hardware_bringup.md still applies unchanged. */
+struct PresetEntry {
   const char *name;
-  const char *reply;  /* printed after the handler returns */
+  const char *reply;
   void (*handler)();
 };
 
@@ -370,7 +425,7 @@ static void cmdBuzzerOn() { setBuzzer(true);  }
 static void cmdBuzzerOff(){ setBuzzer(false); }
 static void cmdAllOff()   { allOutputsOff();  }
 
-static const CommandEntry COMMANDS[] = {
+static const PresetEntry PRESETS[] = {
   { "SAFE",       "OK SAFE",       cmdSafe      },
   { "ALARM",      "OK ALARM",      cmdAlarm     },
   { "SILENCE",    "OK SILENCE",    cmdSilence   },
@@ -383,28 +438,40 @@ static const CommandEntry COMMANDS[] = {
   { "ALL_OFF",    "OK ALL_OFF",    cmdAllOff    },
 };
 
-static const uint8_t COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
-static const uint8_t COMMAND_NOT_FOUND = 0xFF;
+static const uint8_t PRESET_COUNT = sizeof(PRESETS) / sizeof(PRESETS[0]);
+static const uint8_t PRESET_NOT_FOUND = 0xFF;
 
-static uint8_t findCommand(const String &cmd) {
-  for (uint8_t i = 0; i < COMMAND_COUNT; i++) {
-    if (cmd.equals(COMMANDS[i].name)) return i;
+static uint8_t findPreset(const String &cmd) {
+  for (uint8_t i = 0; i < PRESET_COUNT; i++) {
+    if (cmd.equals(PRESETS[i].name)) return i;
   }
-  return COMMAND_NOT_FOUND;
+  return PRESET_NOT_FOUND;
 }
 
-static void handleCommand(String cmd) {
-  cmd.trim();
-  cmd.toUpperCase();
-  if (cmd.length() == 0) return;
+static const char *fwStateName(FwState state) {
+  switch (state) {
+    case FwState::Safe:         return "SAFE";
+    case FwState::AlarmLatched: return "ALARM_LATCHED";
+    case FwState::Silenced:     return "SILENCED";
+    case FwState::Acknowledged: return "ACKNOWLEDGED";
+    case FwState::ReadyToReset: return "READY_TO_RESET";
+    case FwState::Fault:        return "FAULT";
+  }
+  return "UNKNOWN";
+}
+
+static void handleCommand(String raw) {
+  raw.trim();
+  raw.toUpperCase();
+  if (raw.length() == 0) return;
 
   /* Read-only commands never disturb a running self-test. */
-  if (cmd.equals("STATUS")) { printStatus(); return; }
-  if (cmd.equals("HELP") || cmd.equals("?")) { printHelp(); return; }
+  if (raw.equals("STATUS")) { printStatus(); return; }
+  if (raw.equals("HELP") || raw.equals("?")) { printHelp(); return; }
 
-  if (cmd.equals("SELF_TEST")) { startSelfTest(); return; }
+  if (raw.equals("SELF_TEST")) { startSelfTest(); return; }
 
-  if (cmd.equals("STOP_TEST")) {
+  if (raw.equals("STOP_TEST")) {
     if (g_self_test_index == SELF_TEST_IDLE) {
       allOutputsOff();
       Serial.println(F("OK STOP_TEST (no sequence was running; all outputs OFF)"));
@@ -415,19 +482,72 @@ static void handleCommand(String cmd) {
     return;
   }
 
-  const uint8_t index = findCommand(cmd);
-  if (index == COMMAND_NOT_FOUND) {
+  /* ALL_OFF during an incident would extinguish a live safety indication, so it
+   * is refused by the core rather than silently obeyed. */
+  if (raw.equals("ALL_OFF") && g_core.incident_active()) {
+    Serial.println(reply::kErrAllOffIncidentActive);
+    return;
+  }
+
+  const uint8_t preset = findPreset(raw);
+  if (preset != PRESET_NOT_FOUND) {
+    stopSelfTest(F("manual command"));
+    PRESETS[preset].handler();
+
+    Serial.println(PRESETS[preset].reply);
+
+    /* A preset is a diagnostic override, not a lifecycle transition. Say so, so
+     * the log cannot be mistaken for an accepted RESET. */
+    if (g_core.incident_active()) {
+      Serial.print(F("WARN PRESET_OVERRIDE state="));
+      Serial.println(fwStateName(g_core.state()));
+    }
+    return;
+  }
+
+  const ParsedCommand parsed = parseFwCommand(raw.c_str(), raw.length());
+
+  if (parsed.command == FwCommand::Unknown) {
     Serial.print(F("ERROR unknown command: "));
-    Serial.println(cmd);
+    Serial.println(raw);
     Serial.println(F("Type HELP for the command list. Outputs left unchanged."));
     return;
   }
 
-  /* A manual output command cancels a running sequence first, so the two never
-   * fight over the pins. */
-  stopSelfTest(F("manual command"));
-  COMMANDS[index].handler();
-  Serial.println(COMMANDS[index].reply);
+  /* Numeric arguments are mandatory for the id-carrying commands and must parse
+   * cleanly; "INCIDENT abc" must not silently latch incident 0. */
+  const bool needs_id =
+      parsed.command == FwCommand::Alarm ||
+      parsed.command == FwCommand::Silence ||
+      parsed.command == FwCommand::Acknowledge ||
+      parsed.command == FwCommand::ResetReady ||
+      parsed.command == FwCommand::Safe;
+
+  if (needs_id && !parsed.argument_valid) {
+    Serial.print(F("ERR BAD_ARGUMENT "));
+    Serial.println(fwCommandName(parsed.command));
+    return;
+  }
+
+  stopSelfTest(F("lifecycle command"));
+
+  CoreOutputs outputs;
+  outputs.green = g_green_on;
+  outputs.red = g_red_on;
+  outputs.buzzer = g_buzzer_on;
+
+  const char *reply_text = g_core.handle(parsed, millis(), &outputs);
+
+  if (reply_text == nullptr) {
+    /* STATUS is formatted here because only the sketch can report real pins. */
+    printStatus();
+    return;
+  }
+
+  Serial.println(reply_text);
+
+  /* Apply exactly what the core decided, not what we guessed. */
+  applyOutputs(outputs.green, outputs.red, outputs.buzzer);
 }
 
 /* ===========================================================================
@@ -493,6 +613,24 @@ void setup() {
   printHelp();
   Serial.println(F("Ready. Type a command and press Enter."));
 
+  /* Yellow is advisory and its module input is recorded as NOT CONNECTED in
+   * docs/hardware_bringup.md. It is compiled out unless YELLOW_LED_ENABLED is
+   * set, which must only happen after the pin is wired and measured. */
+#if YELLOW_LED_ENABLED
+  pinMode(YELLOW_LED_PIN, OUTPUT);
+  writeActiveLevel(YELLOW_LED_PIN, YELLOW_LED_ACTIVE_HIGH, false);
+  g_core.setYellowEnabled(true);
+  Serial.print(F("yellow          : GPIO"));
+  Serial.println(YELLOW_LED_PIN);
+#else
+  g_core.setYellowEnabled(false);
+  Serial.println(F("yellow          : DISABLED (input not wired)"));
+#endif
+
+  Serial.print(F("heartbeat tmo   : "));
+  Serial.print(HEARTBEAT_TIMEOUT_MS);
+  Serial.println(F(" ms"));
+
   g_line.reserve(64);
 }
 
@@ -532,4 +670,11 @@ void loop() {
 
   /* Non-blocking self-test advance. */
   updateSelfTest(millis());
+
+#if YELLOW_LED_ENABLED
+  /* Blinking is computed from millis() rather than delay()'d, so the serial
+   * poll above never stalls behind a cosmetic light. */
+  writeActiveLevel(YELLOW_LED_PIN, YELLOW_LED_ACTIVE_HIGH,
+                   g_core.yellowLevel(millis()));
+#endif
 }

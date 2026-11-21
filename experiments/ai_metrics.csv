@@ -1,1 +1,2 @@
 test_id,model,dataset,split,train_images,val_images,test_images,precision,recall,f1,map50,map50_95,notes,recorded_at
+AI-01,yolov8n_baseline/best,eye_shield_baseline,test,160,40,40,0.8040,0.7993,0.8016,0.8439,0.4867,"Measured once on the locked test split. The test split was not used for training, early stopping, threshold selection, augmentation selection, or hyper-parameter tuning.; device=cuda:0; fps=45.699",2026-11-18T09:17:10+00:00
