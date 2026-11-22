@@ -76,9 +76,29 @@ class MetricsPanel(Card):
     def _build_available(self) -> None:
         row = self.table.rows[0]
 
+        # Provenance first: which test split these numbers came from, and which
+        # model they describe. The distinction matters because the demo runs V2
+        # while the locked figures are V1, and showing one under the other's name
+        # would overstate what has actually been measured.
+        provenance = QLabel(
+            f"V1 LOCKED TEST \u2014 {row.test_id} / {row.test_images} TEST IMAGES"
+        )
+        provenance.setObjectName("Chip")
+        provenance.setWordWrap(True)
+        provenance.setStyleSheet(
+            f"color: {theme.HEADER_WHITE};"
+            f"background-color: {theme.CYAN_DIM};"
+            f"border: 1px solid {theme.CYAN};"
+            "border-radius: 3px;"
+            "padding: 2px 8px;"
+            "font-size: 10px;"
+            "font-weight: 700;"
+        )
+        self.body.addWidget(provenance, 0, Qt.AlignLeft)
+        self.provenance_label = provenance
+
         subtitle = QLabel(
-            f"{row.test_id}  \u00b7  {row.model}  \u00b7  {row.dataset}/{row.split}"
-            f"  \u00b7  {row.test_images} test images"
+            f"{row.model}  \u00b7  {row.dataset}/{row.split}"
         )
         subtitle.setObjectName("CardCaption")
         subtitle.setWordWrap(True)
@@ -106,6 +126,19 @@ class MetricsPanel(Card):
 
         self.body.addLayout(grid)
         self.body.addWidget(divider())
+
+        # The subject of the locked test is not the model on the demo laptop.
+        # Saying so on the panel is the difference between evidence and a claim.
+        target = QLabel(
+            "V2 TARGET-DOMAIN MODEL \u2014 LIVE ACCEPTANCE: PRELIMINARY / "
+            "NOT FORMALLY PROMOTED"
+        )
+        target.setWordWrap(True)
+        target.setStyleSheet(
+            f"color: {theme.AMBER}; font-size: 10px; font-weight: 600;"
+        )
+        self.body.addWidget(target)
+        self.target_label = target
 
         recorded = QLabel(
             f"Recorded {row.recorded_at}" if row.recorded_at else ""

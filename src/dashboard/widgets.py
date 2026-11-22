@@ -35,8 +35,8 @@ class Card(QFrame):
         self.setObjectName("Card")
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 12, 14, 12)
-        outer.setSpacing(9)
+        outer.setContentsMargins(12, 9, 12, 10)
+        outer.setSpacing(6)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -58,7 +58,7 @@ class Card(QFrame):
 
         self.body = QVBoxLayout()
         self.body.setContentsMargins(0, 0, 0, 0)
-        self.body.setSpacing(8)
+        self.body.setSpacing(6)
         outer.addLayout(self.body, 1)
 
     def set_caption(self, text: str) -> None:
@@ -87,9 +87,10 @@ class MetricTile(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("MetricTile")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(1)
 
         self.value_label = QLabel(value + (f" {unit}" if unit else ""))
@@ -229,3 +230,59 @@ def divider() -> QFrame:
     line.setFixedHeight(1)
     line.setStyleSheet(f"background-color: {theme.BORDER}; border: none;")
     return line
+
+
+class Chip(QLabel):
+    """A small secondary warning badge.
+
+    The banner carries the one dominant message. Everything that is true but not
+    urgent becomes a chip, so a demo build with no Blynk and no logo files does
+    not shout over a latched alarm.
+    """
+
+    def __init__(
+        self,
+        text: str = "",
+        colour: str = theme.TEXT_MUTED,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(text, parent)
+        self.setObjectName("Chip")
+        self.set_colour(colour)
+        self.setVisible(bool(text))
+
+    def set_colour(self, colour: str) -> None:
+        self.setStyleSheet(
+            "QLabel#Chip {"
+            f"color: {colour};"
+            f"border: 1px solid {colour};"
+            "border-radius: 9px;"
+            "padding: 3px 9px;"
+            "font-size: 10px;"
+            "font-weight: 700;"
+            "letter-spacing: 0.5px;"
+            "}"
+        )
+
+    def set_chip(self, text: str, colour: str = theme.TEXT_MUTED) -> None:
+        self.setText(text)
+        self.set_colour(colour)
+        self.setVisible(bool(text))
+
+
+class EmptyState(QLabel):
+    """The explicit "there is nothing here yet" line.
+
+    An empty panel must say why it is empty. A blank region reads as a bug or,
+    worse, as "all clear".
+    """
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setObjectName("EmptyState")
+        self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setWordWrap(True)
+
+    def set_state(self, text: str) -> None:
+        self.setText(text)
+        self.setVisible(bool(text))

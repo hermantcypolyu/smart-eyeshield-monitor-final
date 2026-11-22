@@ -161,6 +161,13 @@ class SessionCounters:
     acknowledgements: int = 0
     resets: int = 0
     rearm_count: int = 0
+    #: Frames in which at least one detection passed the confidence gate.
+    detections: int = 0
+    #: Times the clearance timer completed a recovery after an alarm.
+    safe_recoveries: int = 0
+    #: Reset requests the lifecycle refused, and serial faults observed.
+    rejected_resets: int = 0
+    serial_faults: int = 0
     #: Seconds spent per operator state, keyed by state name.
     state_durations: dict[str, float] = field(default_factory=dict)
 

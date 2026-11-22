@@ -25,8 +25,15 @@ never crashes and never substitutes an approximate mark.
 ## Usage restriction
 
 These marks are the property of their owners. This repository is a student
-coursework project. The header therefore carries the line *"Student AIoT Mini
-Project · Department of Electrical and Electronic Engineering"* and *"Coursework
-demonstration build · not an official PolyU product or service"* so that a
-screenshot can never imply an official University system. Do not remove that
-context line when adding the real marks.
+coursework project.
+
+The header always shows the subtitle *"Student AIoT Mini Project · Department of
+Electrical and Electronic Engineering"* directly under the title, so a screenshot
+cannot present the window as an official University system. The longer
+disclaimer — *"Coursework demonstration build · not an official PolyU product or
+service"* — is attached to that subtitle as a tooltip rather than occupying a
+third header line, because the header height is part of the 1080p no-scroll
+budget.
+
+Both strings live in [`src/dashboard/branding.py`](../../src/dashboard/branding.py)
+as `SUBTITLE` and `CONTEXT`. Do not remove either when adding the real marks.

@@ -13,7 +13,7 @@ evidence" when the evidence was exactly 2.00 s.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from . import theme
 from .state_models import DashboardSnapshot
@@ -26,8 +26,7 @@ class IncidentPanel(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "Incident record",
-            caption="The confirmation duration is the value frozen when the "
-            "incident latched. It is never recomputed from the current frame.",
+            caption="Confirmed-after is frozen at latch time, never recomputed.",
             parent=parent,
         )
 
@@ -51,8 +50,15 @@ class IncidentPanel(Card):
             "violation_ratio": KeyValueRow("Violation ratio"),
         }
 
-        for row in self.rows.values():
-            self.body.addWidget(row)
+        rows = QGridLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setHorizontalSpacing(16)
+        rows.setVerticalSpacing(2)
+
+        for index, row in enumerate(self.rows.values()):
+            rows.addWidget(row, index // 2, index % 2)
+
+        self.body.addLayout(rows)
 
         self.body.addWidget(divider())
 

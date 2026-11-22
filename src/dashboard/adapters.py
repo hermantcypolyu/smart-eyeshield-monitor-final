@@ -438,11 +438,17 @@ class SessionAccumulator:
     resets: int = 0
     rearm_count: int = 0
     state_durations: dict[str, float] = field(default_factory=dict)
+    detections: int = 0
+    safe_recoveries: int = 0
+    rejected_resets: int = 0
+    serial_faults: int = 0
     _last_state: str = ""
     _last_at: float | None = None
 
-    def record_frame(self, observation: str) -> None:
+    def record_frame(self, observation: str, *, detections: int = 0) -> None:
         self.frames += 1
+        if detections > 0:
+            self.detections += 1
         field_name = _COUNTER_FIELD.get(observation)
         if field_name:
             setattr(self, field_name, getattr(self, field_name) + 1)
@@ -484,6 +490,10 @@ class SessionAccumulator:
             acknowledgements=self.acknowledgements,
             resets=self.resets,
             rearm_count=self.rearm_count if rearm_count is None else rearm_count,
+            detections=self.detections,
+            safe_recoveries=self.safe_recoveries,
+            rejected_resets=self.rejected_resets,
+            serial_faults=self.serial_faults,
             state_durations=dict(self.state_durations),
         )
 

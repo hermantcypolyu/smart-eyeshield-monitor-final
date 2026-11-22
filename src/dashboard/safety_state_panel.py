@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -38,12 +39,19 @@ from .widgets import Card, KeyValueRow, StatusPill, divider
 class StateBlock(QWidget):
     """The headline: state name, colour wash, and the action hint."""
 
+    #: Base headline size. Presentation mode multiplies it so the verdict stays
+    #: readable from the back of a lecture theatre rather than merely large.
+    STATE_PX = 34
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._state_px = self.STATE_PX
+        self._state: OperatorState = OperatorState.STARTUP
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(3)
 
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
@@ -51,7 +59,7 @@ class StateBlock(QWidget):
 
         self.state_label = QLabel("STARTUP")
         self.state_label.setStyleSheet(
-            "font-size: 30px; font-weight: 800; letter-spacing: 1.2px;"
+            f"font-size: {self._state_px}px; font-weight: 800; letter-spacing: 1.2px;"
         )
         top.addWidget(self.state_label)
 
@@ -76,7 +84,19 @@ class StateBlock(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._apply_style(OperatorState.STARTUP)
 
+    def set_presentation(self, presentation: bool) -> None:
+        """Enlarge the headline without touching the state it describes."""
+
+        px = int(round(self.STATE_PX * (theme.PRESENTATION_SCALE if presentation else 1.0)))
+
+        if px == self._state_px:
+            return
+
+        self._state_px = px
+        self._apply_style(self._state)
+
     def _apply_style(self, state: OperatorState) -> None:
+        self._state = state
         style = theme.style_for_state(state)
         self.setStyleSheet(
             "QWidget {"
@@ -87,10 +107,11 @@ class StateBlock(QWidget):
         )
         self.state_label.setText(style.label)
         self.state_label.setStyleSheet(
-            "font-size: 30px; font-weight: 800; letter-spacing: 1.2px;"
+            f"font-size: {self._state_px}px; font-weight: 800; letter-spacing: 1.2px;"
             f"color: {style.accent};"
         )
         self.hint_label.setText(style.hint)
+        self.hint_label.setStyleSheet(f"color: {theme.TEXT}; font-size: 12px;")
 
     def update_from(self, snapshot: DashboardSnapshot) -> None:
         state = snapshot.state
@@ -194,9 +215,7 @@ class SafetyStatePanel(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "Safety state",
-            caption="Colour is a contract, not decoration: green is the only "
-            "colour that may be read as compliant, and only a verified SAFE "
-            "verdict produces it.",
+            caption="Only a verified SAFE verdict may turn green.",
             parent=parent,
         )
 
@@ -215,26 +234,47 @@ class SafetyStatePanel(Card):
 
         self.body.addWidget(divider())
 
+        gate_row = QHBoxLayout()
+        gate_row.setContentsMargins(0, 0, 0, 0)
+        gate_row.setSpacing(8)
+
         gate_title = QLabel("RESET GATE")
         gate_title.setObjectName("CardTitle")
-        self.body.addWidget(gate_title)
+        gate_row.addWidget(gate_title)
 
         self.gate_label = QLabel("--")
         self.gate_label.setWordWrap(True)
         self.gate_label.setStyleSheet(f"color: {theme.TEXT}; font-size: 12px;")
-        self.body.addWidget(self.gate_label)
+        gate_row.addWidget(self.gate_label, 1)
+
+        self.body.addLayout(gate_row)
 
         self.detail_rows = {
-            "acknowledged": KeyValueRow("Acknowledged by board"),
+            "acknowledged": KeyValueRow("Acknowledged"),
             "recovered": KeyValueRow("Recovery proven"),
-            "health": KeyValueRow("Camera / model health"),
+            "health": KeyValueRow("Camera / model"),
             "link": KeyValueRow("Serial link"),
         }
 
-        for row in self.detail_rows.values():
-            self.body.addWidget(row)
+        # Two columns rather than four stacked rows: four separate rows cost ~56 px
+        # of vertical space that the live tab does not have.
+        details = QGridLayout()
+        details.setContentsMargins(0, 0, 0, 0)
+        details.setHorizontalSpacing(16)
+        details.setVerticalSpacing(2)
 
+        for index, row in enumerate(self.detail_rows.values()):
+            details.addWidget(row, index // 2, index % 2)
+
+        self.body.addLayout(details)
         self.body.addStretch(1)
+
+    def set_presentation(self, presentation: bool) -> None:
+        self.state_block.set_presentation(presentation)
+
+    @property
+    def state_font_px(self) -> int:
+        return self.state_block._state_px
 
     def update_from(self, snapshot: DashboardSnapshot) -> None:
         self.state_block.update_from(snapshot)

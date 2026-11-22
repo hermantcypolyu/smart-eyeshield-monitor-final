@@ -13,6 +13,7 @@ lifecycle's own reason and marks that row as a safety input.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from . import theme
 from .state_models import DashboardSnapshot, HealthItem
-from .widgets import Card, Dot, divider
+from .widgets import Card, Dot
 
 
 #: Subsystems whose failure raises FAULT. Everything else is informational.
@@ -58,10 +59,26 @@ class HealthRow(QWidget):
         status.setMinimumWidth(104)
         layout.addWidget(status)
 
-        detail = QLabel(item.detail)
-        detail.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
-        detail.setWordWrap(True)
-        layout.addWidget(detail, 1)
+        # Detail text is elided rather than wrapped: a wrapped line makes the
+        # whole page height-for-width dependent, and the extra line at the
+        # bottom of the right column was enough to force a scroll bar at 1080p.
+        # The full text stays reachable as a tooltip.
+        self.detail = QLabel(item.detail)
+        self.detail.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
+        self.detail.setWordWrap(False)
+        self.detail.setToolTip(item.detail)
+        layout.addWidget(self.detail, 1)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        metrics = QFontMetrics(self.detail.font())
+        self.detail.setText(
+            metrics.elidedText(
+                self.detail.toolTip(),
+                Qt.ElideRight,
+                max(self.detail.width(), 0),
+            )
+        )
 
 
 class HealthPanel(Card):
@@ -70,27 +87,24 @@ class HealthPanel(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "Subsystem health",
-            caption="Camera, model and serial link are safety inputs: losing any "
-            "of them raises FAULT and parks the outputs. Blynk and Wi-Fi are not "
-            "part of this build, so they are NOT CONFIGURED rather than offline.",
+            caption="Camera, model and serial are safety inputs: losing one raises "
+            "FAULT and parks the outputs.",
             parent=parent,
         )
 
-        self.rows_layout = QVBoxLayout()
+        # Two columns: eight one-line rows stacked would dominate the right-hand
+        # column, and every row is short enough to halve the width without
+        # wrapping.
+        self.rows_layout = QGridLayout()
         self.rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.rows_layout.setSpacing(0)
+        self.rows_layout.setHorizontalSpacing(14)
+        self.rows_layout.setVerticalSpacing(1)
         self.body.addLayout(self.rows_layout)
 
-        self.body.addWidget(divider())
-
-        legend = QLabel(
-            "Safety inputs: "
-            + ", ".join(sorted(SAFETY_INPUTS))
-            + ". Informational rows never affect the verdict."
-        )
-        legend.setWordWrap(True)
-        legend.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 10px;")
-        self.body.addWidget(legend)
+        self.empty_label = QLabel("NO HARDWARE STATUS YET")
+        self.empty_label.setObjectName("EmptyState")
+        self.empty_label.setWordWrap(True)
+        self.body.addWidget(self.empty_label)
 
         self.body.addStretch(1)
 
@@ -113,7 +127,12 @@ class HealthPanel(Card):
 
         self._rows = []
 
-        for item in snapshot.health:
+        for index, item in enumerate(snapshot.health):
             row = HealthRow(item)
-            self.rows_layout.addWidget(row)
+            self.rows_layout.addWidget(row, index // 2, index % 2)
             self._rows.append(row)
+
+        # An empty health list is a genuine state - the window opens before the
+        # first poll - and must say so rather than render an empty card that looks
+        # like "everything is fine".
+        self.empty_label.setVisible(not snapshot.health)

@@ -92,6 +92,10 @@ incident on startup or on exit, because an open incident is closed by the
 | `S` | Silence | The same lifecycle request; the firmware silences the buzzer on acknowledgement. |
 | `R` | Request reset | Sends `RESET_READY <id>`, then `RESET` when the board answers. Only offered when every precondition holds. |
 | `Ctrl+E` | Export | Writes the session timeline to CSV. |
+| `P` | Presentation | Enlarges type and hides the analytics tab. A view change only. |
+| `Esc` | — | Leaves presentation mode, then fullscreen. |
+| `T` | Status | Asks the board for a fresh `STATUS`. |
+| `F1` | Help | Key reference. |
 
 A disabled button is not a UI preference. It means the lifecycle would refuse
 the request, and the reason is printed underneath in the reset-gate line.
@@ -142,27 +146,72 @@ question.
 
 ## Layout
 
+The window is two tabs rather than one long page. Everything an operator needs
+while watching a lamp is on **LIVE OPERATIONS**; everything that is only
+interesting afterwards is on **ANALYTICS & EVIDENCE**.
+
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│ HeaderBar    Smart Eye-Shield Safety Operations Centre   [branding] │
-├────────────────────────────────────────────────────────────────────┤
-│ BannerBar    DEMO DATA / NO SERIAL PORT / CAMERA UNAVAILABLE        │
-├──────────────┬─────────────────────────────────┬───────────────────┤
-│ CameraPanel  │ SafetyStatePanel                │ HardwarePanel     │
-│              │  state, timers, reset gate      │  lamps + provenance│
-│              ├──────────────┬──────────────────┼───────────────────┤
-│              │ ChartsPanel  │ IncidentPanel    │ HealthPanel       │
-│              ├──────────────┴──────────────────┤                   │
-│              │ SignalFlowWidget                │ ControlPanel      │
-├──────────────┴─────────────────────────────────┴───────────────────┤
-│ EventTimeline                              MetricsPanel           │
-└────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ HeaderBar    Smart Eye-Shield Safety Operations Centre      [logos]      │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Chip strip   DEMO DATA · LOGO MISSING · BLYNK NOT CONFIGURED · YELLOW …  │
+├─ LIVE OPERATIONS ─┬─ ANALYTICS & EVIDENCE ───────────────────────────────┤
+│ CameraPanel       │ SafetyStatePanel                │ HardwarePanel      │
+│                   ├─────────────────────────────────┤  lamps+provenance  │
+│                   │ IncidentPanel                   ├────────────────────┤
+│                   │                                 │ HealthPanel        │
+├───────────────────┴─────────┬───────────────────────┴────────────────────┤
+│ LifecycleDiagram            │ EventTimeline (meaningful transitions only) │
+│ + operator action buttons   │                                             │
+├─────────────────────────────┴────────────────────────────────────────────┤
+│ Footer   tab · state · link · port · model · frames   P presentation      │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-`SignalFlowWidget` shows where the chain breaks — camera → model → filter →
-lifecycle → serial → board. When a stage is dead the box is marked and the
-reason is annotated, which turns "the lamp will not come on" into "the model
-never loaded".
+The analytics tab is the rolling telemetry (`ChartsPanel`: FPS, latency,
+per-class confidence, a duty gauge, session counters, state durations), the
+model evidence read from `experiments/ai_metrics.csv`, and the unfiltered event
+record. Charts are fed continuously even while the tab is hidden — switching
+tabs is a paint operation, never a replay.
+
+The live tab is designed to fit a 1080p viewport without scrolling. It is
+measured, not assumed: `test_dashboard_presentation.py` resizes the window to
+1920x1080 and asserts the scroll bar stays hidden **in both normal and
+presentation mode**. The assertion compares the rendered page height against the
+viewport, because panels demand height as a function of their width - a passing
+`minimumSizeHint()` is not proof the page fits.
+
+Below 1080p the page is genuinely too tall to compress further, and it scrolls.
+That is deliberate: a clipped reset gate would be worse than a scroll bar. At
+1440x900 the page needs roughly 920 px against a ~709 px viewport.
+
+**Presentation mode (`P`)** goes fullscreen, scales the type up 1.35x and hides
+the analytics tab. It also hides the **tab bar**: with one page left a single tab
+is a dead control, and dropping it is what pays for the larger fonts so 1080p
+stays scroll-free. It touches no lifecycle state, no correlator and no worker,
+so toggling it mid-incident is safe.
+
+**The banner** carries one condition, chosen by consequence rather than by
+whichever check ran last:
+
+| Priority | Condition | Colour |
+| --- | --- | --- |
+| 1 | `DEMO DATA` (fixtures, not a live safety system) | amber |
+| 2 | `FAULT` — a safety input is unusable, outputs parked | magenta |
+| 3 | No serial port / serial link down | red |
+| 4 | Camera unavailable | red |
+| 5 | Firmware `STATUS` stale beyond 5 s | orange |
+| 6 | Advisory: metrics unavailable, branding logo missing | amber |
+
+Advisory conditions never overwrite an urgent one; a banner that mixes "no
+serial port" with "logo missing" trains the operator to ignore both.
+Unimplemented Blynk and the unwired yellow lamp are chips, not banners.
+
+`SignalFlowWidget` shows where the chain breaks — camera → detector → filter →
+lifecycle → serial → ESP32 → outputs. It names the **first** dead node, not the
+last symptom: when serial is down, the ESP32 and the outputs are also dead, and
+reporting "outputs stopped" would send the operator to the wrong end of the
+cable.
 
 ## Code map
 
@@ -176,7 +225,10 @@ never loaded".
 | [`theme.py`](../src/dashboard/theme.py) | Palette, `STATE_STYLES`, stylesheet. |
 | [`branding.py`](../src/dashboard/branding.py) | PolyU / EIE logo handling and the placeholder. |
 | [`widgets.py`](../src/dashboard/widgets.py) | Card, MetricTile, Dot, StatusPill, KeyValueRow. |
-| the eight `*_panel.py` modules | One concern each; `update_from(snapshot)` and nothing more. |
+| [`lifecycle_diagram.py`](../src/dashboard/lifecycle_diagram.py) | The state machine drawn in a `QGraphicsScene`; bounded height so the page fits. |
+| [`signal_flow.py`](../src/dashboard/signal_flow.py) | Seven-node causal chain and the first-break resolver. |
+| [`event_timeline.py`](../src/dashboard/event_timeline.py) | Dual view: meaningful transitions, plus the raw serial record on demand. |
+| the nine `*_panel.py` modules | One concern each; `update_from(snapshot)` and nothing more. |
 
 `main_window.py` imports `IncidentLifecycle`, `CommandCorrelator`,
 `parse_serial_reply` and `expected_code_for` from the existing tools rather than
@@ -195,6 +247,12 @@ shows a neutral placeholder and the health panel reports the logo row as
 ```bash
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_dashboard_*.py -q
 ```
+
+`tests/test_dashboard_presentation.py` is the visual-contract suite: tabs,
+presentation mode (including tab-bar hiding and the button object-name/selector
+pairing), chip visibility, banner priority ordering, the 7-node flow, the
+diagram's bounded height, timeline filtering, and the 1080p no-scroll layout
+assertion in both modes.
 
 The suites are Qt-free where possible (`adapters`, `theme`, `branding`) and use
 a single session-scoped `QApplication` from [`tests/conftest.py`](../tests/conftest.py)

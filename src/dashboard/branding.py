@@ -85,16 +85,23 @@ def placeholder_pixmap(width: int, height: int, label: str) -> QPixmap:
     painter = QPainter(pixmap)
     try:
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(QPen(QColor(theme.GREY), 1, Qt.DashLine))
-        painter.setBrush(QColor("#F2F4F8"))
+        painter.setPen(QPen(QColor(theme.BORDER), 1, Qt.DashLine))
+        painter.setBrush(QColor("#0E2145"))
         painter.drawRoundedRect(
             QRectF(0.5, 0.5, width - 1.0, height - 1.0), 4.0, 4.0
         )
 
-        font = QFont("Helvetica Neue", 7)
+        # A burgundy rule along the top makes the placeholder read as a
+        # deliberate design element rather than a broken image.
+        painter.setPen(QPen(QColor(theme.BURGUNDY), 2))
+        painter.drawLine(
+            int(width * 0.18), 3, int(width * 0.82), 3
+        )
+
+        font = QFont("Helvetica Neue", 8)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor(theme.GREY))
+        painter.setPen(QColor(theme.TEXT))
         painter.drawText(
             QRectF(0, 0, width, height * 0.62),
             Qt.AlignCenter,
@@ -104,6 +111,7 @@ def placeholder_pixmap(width: int, height: int, label: str) -> QPixmap:
         font.setPointSize(6)
         font.setBold(False)
         painter.setFont(font)
+        painter.setPen(QColor(theme.TEXT_MUTED))
         painter.drawText(
             QRectF(0, height * 0.52, width, height * 0.42),
             Qt.AlignCenter,

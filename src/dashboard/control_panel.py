@@ -1,137 +1,106 @@
-"""Control panel: the operator's four actions and the lifecycle diagram.
+"""Control panel: operator actions, grouped by consequence.
 
-Two deliberate choices:
+The layout answers one question before the operator presses anything: *which of
+these can I press right now, and why not?*
 
-- **Buttons mirror the shortcut keys, and stop when they cannot act.** A disabled
-  button is the honest signal that the lifecycle would reject the request, so the
-  operator learns the rule instead of pressing a key that silently does nothing.
-  The enabled state is derived from the lifecycle's own gate, not guessed.
-- **The diagram is built from widgets, not an image.** An embedded picture cannot
-  show which node is live, and a stale highlight is worse than none. Nodes carry
-  their own colour and the current state is filled while the rest are outlined.
+- **Primary actions** are the three that change safety state: silence,
+  acknowledge, request reset. They sit together, they are large, and each one
+  carries its own disable reason so a greyed-out button is never a mystery.
+- **Secondary actions** are read-only or housekeeping: request a board status
+  poll, export the session, open help. They cannot change safety state, so they
+  are visually quieter.
 
-Reset is offered only when ``reset_blocker()`` is ``NONE``; acknowledge only
-while an incident is open and unacknowledged. Silence is not offered at all as a
-separate action, because acknowledging is what silences the buzzer and inventing
-a second silence path would create two ways to do one thing.
+Two deliberate constraints:
+
+- **Silence is acknowledge.** The board silences the buzzer on ``ACKNOWLEDGE``;
+  there is no separate silence command. Offering two buttons for one firmware
+  action would imply a distinction the hardware does not make, so both buttons
+  exist for discoverability but report the same gate.
+- **Disable reasons are permanent labels, not tooltips.** A tooltip requires a
+  hover, and a hover is exactly what an operator does not have time for mid-demo.
+  Each button keeps a reserved reason line beneath it, which also stops the card
+  from jumping when a reason appears.
+
+The diagram is display-only: it is a ``QGraphicsView`` over the state machine and
+accepts no mouse buttons. Requesting a reset must go through ``reset_button`` and
+therefore through the lifecycle's gate.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from tools.incident_lifecycle import OperatorState
-
 from . import theme
 from .adapters import reset_blocker_text
+from .lifecycle_diagram import LifecycleDiagram
 from .state_models import DashboardSnapshot
-from .widgets import Card, divider
+from .widgets import Card
 
 
-#: Diagram layout. Each entry is (row, column) on a 3-column grid so the two
-#: decision branches and the recovery path are visually separate.
-_DIAGRAM_LAYOUT: tuple[tuple[OperatorState, int, int], ...] = (
-    (OperatorState.STARTUP, 0, 1),
-    (OperatorState.WAITING_FOR_TARGET, 1, 1),
-    (OperatorState.SAFE, 2, 0),
-    (OperatorState.VIOLATION_PENDING, 2, 2),
-    (OperatorState.ALARM_LATCHED, 3, 2),
-    (OperatorState.ACKNOWLEDGED, 4, 2),
-    (OperatorState.SAFE_CLEAR_PENDING, 4, 0),
-    (OperatorState.SAFE_RECOVERED, 5, 0),
-    (OperatorState.FAULT, 5, 2),
-)
+#: Fixed reason-line height, so enabling a button cannot resize the card.
+_REASON_HEIGHT = 24
 
 
-class StateNode(QLabel):
-    """One state in the diagram: outlined normally, filled when current."""
+class _ActionGroup(QWidget):
+    """A titled row of buttons, each with a permanent reason line underneath."""
 
-    def __init__(self, state: OperatorState, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.state = state
-        style = theme.style_for_state(state)
-
-        self.setText(style.label)
-        self.setAlignment(Qt.AlignCenter)
-        self.setWordWrap(True)
-        self.setMinimumHeight(34)
-        self.set_active(False)
-
-    def set_active(self, active: bool) -> None:
-        style = theme.style_for_state(self.state)
-
-        if active:
-            self.setStyleSheet(
-                "QLabel {"
-                f"background-color: {style.accent};"
-                "color: #FFFFFF;"
-                "border: 2px solid #FFFFFF;"
-                "border-radius: 4px;"
-                "padding: 4px 6px;"
-                "font-size: 10px;"
-                "font-weight: 800;"
-                "}"
-            )
-        else:
-            self.setStyleSheet(
-                "QLabel {"
-                f"background-color: transparent;"
-                f"color: {style.accent};"
-                f"border: 1px solid {style.accent};"
-                "border-radius: 4px;"
-                "padding: 4px 6px;"
-                "font-size: 10px;"
-                "font-weight: 600;"
-                "}"
-            )
-
-
-class LifecycleDiagram(QWidget):
-    """Widget-based state diagram with the live state filled in."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        layout = QGridLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(8)
-        layout.setVerticalSpacing(6)
+        layout.setSpacing(3)
 
-        self.nodes: dict[OperatorState, StateNode] = {}
+        self.heading = QLabel(title)
+        self.heading.setObjectName("CardCaption")
+        layout.addWidget(self.heading)
 
-        for state, row, column in _DIAGRAM_LAYOUT:
-            node = StateNode(state)
-            layout.addWidget(node, row, column)
-            self.nodes[state] = node
+        self._buttons = QHBoxLayout()
+        self._buttons.setContentsMargins(0, 0, 0, 0)
+        self._buttons.setSpacing(8)
+        layout.addLayout(self._buttons)
 
-        for column in range(3):
-            layout.setColumnStretch(column, 1)
+        self._reasons = QHBoxLayout()
+        self._reasons.setContentsMargins(0, 0, 0, 0)
+        self._reasons.setSpacing(8)
+        layout.addLayout(self._reasons)
 
-        self.current: OperatorState | None = None
+        self.reason_labels: dict[QPushButton, QLabel] = {}
 
-    def set_state(self, state: OperatorState) -> None:
-        if state is self.current:
-            return
+    @property
+    def buttons(self) -> tuple[QPushButton, ...]:
+        return tuple(self.reason_labels)
 
-        if self.current is not None and self.current in self.nodes:
-            self.nodes[self.current].set_active(False)
+    def add_button(self, button: QPushButton, *, primary: bool = False) -> None:
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setMinimumHeight(34 if primary else 28)
 
-        if state in self.nodes:
-            self.nodes[state].set_active(True)
-        else:
-            # A state with no node would silently show nothing; better to say so.
-            for node in self.nodes.values():
-                node.set_active(False)
+        button.setObjectName("PrimaryButton" if primary else "SecondaryButton")
 
-        self.current = state
+        self._buttons.addWidget(button, 1)
+
+        reason = QLabel("")
+        reason.setWordWrap(True)
+        reason.setFixedHeight(_REASON_HEIGHT)
+        reason.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        reason.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 9px;")
+        self._reasons.addWidget(reason, 1)
+
+        self.reason_labels[button] = reason
+
+    def set_reason(self, button: QPushButton, text: str) -> None:
+        label = self.reason_labels.get(button)
+
+        if label is not None and label.text() != text:
+            label.setText(text)
 
 
 class ControlPanel(Card):
@@ -141,29 +110,27 @@ class ControlPanel(Card):
     acknowledge_requested = Signal()
     reset_requested = Signal()
     export_requested = Signal()
+    status_requested = Signal()
+    help_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "Operator actions",
-            caption="A disabled button means the lifecycle would reject the "
-            "request. Keys: S silence, A acknowledge, R reset, Ctrl+E export.",
+            caption="Keys: S silence, A acknowledge, R reset, T status, "
+            "Ctrl+E export, F1 help.",
             parent=parent,
         )
 
         self.diagram = LifecycleDiagram()
-        self.body.addWidget(self.diagram)
+        self.body.addWidget(self.diagram, 1)
 
-        self.body.addWidget(divider())
-
-        buttons = QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(8)
+        self.primary_group = _ActionGroup("PRIMARY \u2014 CHANGES SAFETY STATE")
+        self.secondary_group = _ActionGroup("SECONDARY \u2014 READ-ONLY")
 
         self.silence_button = QPushButton("Silence  (S)")
         self.silence_button.clicked.connect(self.silence_requested.emit)
 
         self.acknowledge_button = QPushButton("Acknowledge  (A)")
-        self.acknowledge_button.setObjectName("PrimaryButton")
         self.acknowledge_button.clicked.connect(self.acknowledge_requested.emit)
 
         self.reset_button = QPushButton("Request reset  (R)")
@@ -174,22 +141,37 @@ class ControlPanel(Card):
             self.acknowledge_button,
             self.reset_button,
         ):
-            buttons.addWidget(button)
+            self.primary_group.add_button(button, primary=True)
 
-        self.body.addLayout(buttons)
+        self.status_button = QPushButton("Status  (T)")
+        self.status_button.clicked.connect(self.status_requested.emit)
 
+        self.export_button = QPushButton("Export  (Ctrl+E)")
+        self.export_button.clicked.connect(self.export_requested.emit)
+
+        self.help_button = QPushButton("Help  (F1)")
+        self.help_button.clicked.connect(self.help_requested.emit)
+
+        for button in (
+            self.status_button,
+            self.export_button,
+            self.help_button,
+        ):
+            self.secondary_group.add_button(button)
+
+        self.body.addWidget(self.primary_group)
+        self.body.addWidget(self.secondary_group)
+
+        # The paragraph summary kept from the previous version. Still the fastest
+        # read when only one thing is wrong, so it stays.
         self.gate_label = QLabel("--")
         self.gate_label.setWordWrap(True)
         self.gate_label.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
         self.body.addWidget(self.gate_label)
 
-        self.body.addStretch(1)
-
     # -- updates ------------------------------------------------------------
 
     def update_from(self, snapshot: DashboardSnapshot) -> None:
-        self.diagram.set_state(snapshot.state)
-
         lifecycle = snapshot.lifecycle
         open_incident = lifecycle.incident_id is not None
 
@@ -203,12 +185,37 @@ class ControlPanel(Card):
         # acknowledgement, so it is only offered when acknowledging is possible.
         self.silence_button.setEnabled(can_acknowledge)
 
+        self.diagram.set_state(snapshot.state, reset_blocked=not can_reset)
+
         self.silence_button.setToolTip(
             "Silence the buzzer. Equivalent to acknowledging: the board silences "
             "on ACKNOWLEDGE, and silence never restores green."
             if can_acknowledge
             else "Nothing to silence."
         )
+
+        if can_acknowledge:
+            self.primary_group.set_reason(self.silence_button, "ready")
+            self.primary_group.set_reason(self.acknowledge_button, "ready")
+        elif not open_incident:
+            self.primary_group.set_reason(self.silence_button, "no incident")
+            self.primary_group.set_reason(self.acknowledge_button, "no incident")
+        else:
+            self.primary_group.set_reason(self.silence_button, "already silenced")
+            self.primary_group.set_reason(
+                self.acknowledge_button, "already acknowledged"
+            )
+
+        if can_reset:
+            self.primary_group.set_reason(self.reset_button, "gate open")
+        else:
+            self.primary_group.set_reason(
+                self.reset_button, reset_blocker_text(snapshot.reset_blocker)
+            )
+
+        self.secondary_group.set_reason(self.status_button, "polls the board")
+        self.secondary_group.set_reason(self.export_button, "writes a CSV")
+        self.secondary_group.set_reason(self.help_button, "shortcut keys")
 
         if not can_acknowledge:
             if not open_incident:
@@ -218,7 +225,9 @@ class ControlPanel(Card):
                     "Acknowledge: already acknowledged - the buzzer is silenced."
                 )
         elif not can_reset:
-            self.gate_label.setText(f"Reset: {reset_blocker_text(snapshot.reset_blocker)}")
+            self.gate_label.setText(
+                f"Reset: {reset_blocker_text(snapshot.reset_blocker)}"
+            )
         else:
             self.gate_label.setText("Reset gate open: request reset to restore green.")
 

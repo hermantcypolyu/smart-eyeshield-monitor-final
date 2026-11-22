@@ -28,6 +28,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -36,14 +37,17 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QScrollArea,
+    QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from tools.incident_lifecycle import IncidentLifecycle, ResetBlocker
+from tools.incident_lifecycle import IncidentLifecycle, OperatorState, ResetBlocker
 
 from . import branding, theme
 from .adapters import (
+    STALE_STATUS_SECONDS,
     DemoDataDriver,
     SessionAccumulator,
     build_health_items,
@@ -61,6 +65,7 @@ from .incident_panel import IncidentPanel
 from .metrics_panel import MetricsPanel
 from .safety_state_panel import SafetyStatePanel
 from .signal_flow import SignalFlowWidget
+from .widgets import Chip, EmptyState
 from .state_models import (
     BoardSnapshot,
     DashboardSnapshot,
@@ -75,6 +80,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: How long a lifecycle command may wait for its reply before the link is judged
 #: broken. Matches the demo so the two cannot disagree about a dead board.
 REPLY_TIMEOUT_SECONDS = 2.0
+
+#: Rows in the LIVE tab's event list. An operator watching a lamp needs the last
+#: few things that happened, not three hundred; the full record is on the
+#: analytics tab and in the export.
+LIVE_TIMELINE_ROWS = 8
 
 
 def _protocol_helpers():
@@ -153,12 +163,8 @@ class HeaderBar(QFrame):
         subtitle = QLabel(branding.SUBTITLE)
         subtitle.setObjectName("HeaderSubtitle")
         subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setToolTip(branding.CONTEXT)
         centre.addWidget(subtitle)
-
-        context = QLabel(branding.CONTEXT)
-        context.setObjectName("HeaderContext")
-        context.setAlignment(Qt.AlignCenter)
-        centre.addWidget(context)
 
         layout.addLayout(centre, 1)
 
@@ -279,6 +285,11 @@ class MainWindow(QMainWindow):
         self._fixture_last = time.monotonic()
         self._fixture_timeline_index = 0
 
+        #: Presentation mode is a view flag. It gates type size and the analytics
+        #: tab and nothing else.
+        self._presentation = False
+        self.active_tab = theme.TAB_TITLES[0]
+
         # Firmware upload identity and thermal limits are recorded so the header
         # can be checked against the board without opening a terminal.
         self.weights = weights
@@ -324,70 +335,160 @@ class MainWindow(QMainWindow):
         self.banner = BannerBar()
         root.addWidget(self.banner)
 
+        # The chip strip carries the true-but-not-urgent statements. They are
+        # deliberately below the banner: a missing logo must never out-shout a
+        # latched alarm, and a demo build has at least three of these.
+        self.chip_strip = QWidget()
+        chip_layout = QHBoxLayout(self.chip_strip)
+        chip_layout.setContentsMargins(12, 4, 12, 0)
+        chip_layout.setSpacing(6)
+
+        self.mode_chip = Chip("")
+        self.branding_chip = Chip("")
+        self.blynk_chip = Chip("BLYNK NOT CONFIGURED", theme.TEXT_MUTED)
+        self.yellow_chip = Chip("YELLOW LED NOT WIRED", theme.TEXT_MUTED)
+
+        for chip in (
+            self.mode_chip,
+            self.branding_chip,
+            self.blynk_chip,
+            self.yellow_chip,
+        ):
+            chip_layout.addWidget(chip)
+
+        chip_layout.addStretch(1)
+        root.addWidget(self.chip_strip)
+
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("MainTabs")
+        self.tabs.setDocumentMode(True)
+        root.addWidget(self.tabs, 1)
+
+        self.live_tab = self._build_live_tab()
+        self.analytics_tab = self._build_analytics_tab()
+
+        self.tabs.addTab(self.live_tab, theme.TAB_TITLES[0])
+        self.tabs.addTab(self.analytics_tab, theme.TAB_TITLES[1])
+        self.tabs.setTabToolTip(0, theme.TAB_SUBTITLES[theme.TAB_LIVE])
+        self.tabs.setTabToolTip(1, theme.TAB_SUBTITLES[theme.TAB_ANALYTICS])
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+        root.addWidget(self._build_footer())
+
+        self.status_label = QLabel("Starting\u2026")
+        self.statusBar().addWidget(self.status_label, 1)
+
+    # -- tabs ---------------------------------------------------------------
+
+    def _tab_subtitle(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("TabSubtitle")
+        label.setWordWrap(True)
+        return label
+
+    def _build_live_tab(self) -> QWidget:
+        """The screen that stays open during a demo. No vertical scrolling.
+
+        Proportions follow the brief: camera roughly half the width, verdict and
+        incident about a quarter, hardware and health the rest. Everything here
+        is what an operator needs while watching a lamp; everything that is only
+        interesting afterwards lives on the analytics tab.
+        """
+
+        page = QWidget()
+        page.setObjectName("TabPage")
+
+        shell = QVBoxLayout(page)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+
+        # The live page is designed to fit without scrolling at 1080p and above.
+        # Below that it is genuinely too tall to compress further, and a clipped
+        # reset gate is worse than a scroll bar, so the scroll area is a safety
+        # valve rather than the primary layout.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        root.addWidget(scroll, 1)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setObjectName("LiveScroll")
+        shell.addWidget(scroll)
 
-        content = QWidget()
-        content.setObjectName("Content")
-        scroll.setWidget(content)
+        page_body = QWidget()
+        page_body.setObjectName("Content")
+        # The page's minimum is 835 px, comfortably under a 1080p viewport, but
+        # word-wrapped captions make its height-for-width land 30 px higher and
+        # that is what the scroll area honours. Ignoring the vertical hint lets
+        # the layout settle on the minimum instead of the padded hint.
+        page_body.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
+        scroll.setWidget(page_body)
 
-        grid = QGridLayout(content)
-        grid.setContentsMargins(12, 12, 12, 12)
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(12)
+        outer = QVBoxLayout(page_body)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(8)
 
-        # Row 0: camera | safety state | hardware
+        outer.addWidget(
+            self._tab_subtitle(theme.TAB_SUBTITLES[theme.TAB_LIVE])
+        )
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+
+        # Row 0: camera | verdict + incident | hardware
         self.camera_panel = CameraPanel()
         self.camera_panel.setMinimumWidth(420)
         grid.addWidget(self.camera_panel, 0, 0)
 
+        middle = QVBoxLayout()
+        middle.setContentsMargins(0, 0, 0, 0)
+        middle.setSpacing(10)
+
         self.safety_panel = SafetyStatePanel()
-        grid.addWidget(self.safety_panel, 0, 1)
+        middle.addWidget(self.safety_panel, 3)
 
-        self.hardware_panel = HardwarePanel()
-        grid.addWidget(self.hardware_panel, 0, 2)
-
-        # Row 1-2: incident | charts (tall) | health + metrics
         self.incident_panel = IncidentPanel()
-        grid.addWidget(self.incident_panel, 1, 0)
+        middle.addWidget(self.incident_panel, 2)
 
-        self.charts_panel = ChartsPanel()
-        grid.addWidget(self.charts_panel, 1, 1, 2, 1)
+        middle_host = QWidget()
+        middle_host.setLayout(middle)
+        grid.addWidget(middle_host, 0, 1)
 
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(12)
+        right.setSpacing(10)
+
+        self.hardware_panel = HardwarePanel()
+        right.addWidget(self.hardware_panel, 3)
 
         self.health_panel = HealthPanel()
-        right.addWidget(self.health_panel)
-
-        self.metrics_panel = MetricsPanel()
-        right.addWidget(self.metrics_panel)
-        right.addStretch(1)
+        right.addWidget(self.health_panel, 2)
 
         right_host = QWidget()
         right_host.setLayout(right)
-        grid.addWidget(right_host, 1, 2)
+        grid.addWidget(right_host, 0, 2)
 
-        # Row 2: operator actions
+        # Row 1: operator controls | live events | compact flow
         self.control_panel = ControlPanel()
         self.control_panel.acknowledge_requested.connect(self.request_acknowledge)
         self.control_panel.silence_requested.connect(self.request_acknowledge)
         self.control_panel.reset_requested.connect(self.request_reset)
         self.control_panel.export_requested.connect(self.export_session)
-        grid.addWidget(self.control_panel, 2, 0)
+        self.control_panel.status_requested.connect(self.request_status)
+        self.control_panel.help_requested.connect(self.show_help)
+        grid.addWidget(self.control_panel, 1, 0)
 
-        # Row 3: timeline | signal flow
-        self.timeline = EventTimeline()
-        self.timeline.setMinimumHeight(220)
-        grid.addWidget(self.timeline, 3, 0, 1, 2)
+        self.live_timeline = EventTimeline(
+            title="Recent events",
+            display_limit=LIVE_TIMELINE_ROWS,
+        )
+        self.live_timeline.setMinimumHeight(180)
+        grid.addWidget(self.live_timeline, 1, 1)
 
         flow_card = QFrame()
         flow_card.setObjectName("Card")
         flow_layout = QVBoxLayout(flow_card)
-        flow_layout.setContentsMargins(14, 12, 14, 12)
+        flow_layout.setContentsMargins(14, 10, 14, 10)
         flow_layout.setSpacing(6)
 
         flow_title = QLabel("SIGNAL FLOW")
@@ -397,33 +498,185 @@ class MainWindow(QMainWindow):
         self.signal_flow = SignalFlowWidget()
         flow_layout.addWidget(self.signal_flow)
 
-        flow_note = QLabel(
-            "Where the chain stops is the fault. PINS shows firmware-reported "
-            "output, never a guess."
-        )
-        flow_note.setObjectName("CardCaption")
-        flow_note.setWordWrap(True)
-        flow_layout.addWidget(flow_note)
+        self.live_flow_note = QLabel("")
+        self.live_flow_note.setObjectName("CardCaption")
+        self.live_flow_note.setWordWrap(True)
+        flow_layout.addWidget(self.live_flow_note)
         flow_layout.addStretch(1)
 
-        grid.addWidget(flow_card, 3, 2)
+        grid.addWidget(flow_card, 1, 2)
 
-        for column in range(3):
-            grid.setColumnStretch(column, 1)
+        # Camera gets the wide column; verdict and hardware share the rest.
+        grid.setColumnStretch(0, 5)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(2, 2)
+        grid.setRowStretch(0, 3)
+        grid.setRowStretch(1, 2)
 
-        self.status_label = QLabel("Starting\u2026")
-        self.statusBar().addWidget(self.status_label, 1)
+        outer.addLayout(grid, 1)
+
+        return page
+
+    def _build_analytics_tab(self) -> QWidget:
+        """Evidence and history. Scrollable, because it is read, not watched."""
+
+        page = QWidget()
+        page.setObjectName("TabPage")
+
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        outer.addWidget(scroll)
+
+        content = QWidget()
+        content.setObjectName("Content")
+        scroll.setWidget(content)
+
+        grid = QGridLayout(content)
+        grid.setContentsMargins(12, 8, 12, 12)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+
+        grid.addWidget(
+            self._tab_subtitle(theme.TAB_SUBTITLES[theme.TAB_ANALYTICS]), 0, 0, 1, 3
+        )
+
+        self.metrics_panel = MetricsPanel()
+        grid.addWidget(self.metrics_panel, 1, 0)
+
+        self.charts_panel = ChartsPanel()
+        grid.addWidget(self.charts_panel, 1, 1, 2, 2)
+
+        self.timeline = EventTimeline(title="Full event record")
+        self.timeline.setMinimumHeight(230)
+        grid.addWidget(self.timeline, 2, 0)
+
+        diagnostics_card = QFrame()
+        diagnostics_card.setObjectName("Card")
+        diagnostics_layout = QVBoxLayout(diagnostics_card)
+        diagnostics_layout.setContentsMargins(14, 10, 14, 10)
+        diagnostics_layout.setSpacing(6)
+
+        diagnostics_title = QLabel("DIAGNOSTICS \u2014 RAW SERIAL TRAFFIC")
+        diagnostics_title.setObjectName("CardTitle")
+        diagnostics_layout.addWidget(diagnostics_title)
+
+        diagnostics_note = QLabel(
+            "Every STATUS line, HEARTBEAT and boot banner, unfiltered. The same "
+            "record the CSV export writes in full."
+        )
+        diagnostics_note.setObjectName("CardCaption")
+        diagnostics_note.setWordWrap(True)
+        diagnostics_layout.addWidget(diagnostics_note)
+
+        self.diagnostics_table = EventTimeline(title="Raw record")
+        self.diagnostics_table.setMinimumHeight(180)
+        self.diagnostics_table.show_raw(True)
+        diagnostics_layout.addWidget(self.diagnostics_table, 1)
+
+        grid.addWidget(diagnostics_card, 3, 0, 1, 3)
+
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(2, 3)
+
+        return page
+
+    def _build_footer(self) -> QWidget:
+        """One compact persistent line: mode, board, model, help hint."""
+
+        footer = QWidget()
+        footer.setObjectName("Footer")
+
+        layout = QHBoxLayout(footer)
+        layout.setContentsMargins(12, 3, 12, 3)
+        layout.setSpacing(10)
+
+        self.footer_label = QLabel("")
+        self.footer_label.setObjectName("Footer")
+        self.footer_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        layout.addWidget(self.footer_label, 1)
+
+        self.presentation_hint = QLabel("P presentation  \u00b7  F1 help")
+        self.presentation_hint.setObjectName("Footer")
+        layout.addWidget(self.presentation_hint)
+
+        return footer
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Record which tab is on screen.
+
+        Nothing is replayed and no worker is touched: every timeline is fed from
+        ``_log`` as events happen, so a tab that was hidden simply shows the
+        record already accumulated. Switching tabs is a paint operation only.
+        """
+
+        self.active_tab = theme.TAB_TITLES[0] if index == 0 else theme.TAB_TITLES[1]
+
+    # -- presentation mode --------------------------------------------------
+
+    @property
+    def presentation(self) -> bool:
+        return self._presentation
+
+    def toggle_presentation(self) -> None:
+        """Enlarge type and hide the analytics tab. Esc leaves it.
+
+        Presentation mode is a view change and nothing else: it never touches the
+        lifecycle, the correlator or either worker, so toggling it mid-incident is
+        safe.
+        """
+
+        self.set_presentation(not self._presentation)
+
+    def set_presentation(self, presentation: bool) -> None:
+        self._presentation = bool(presentation)
+
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(theme.stylesheet(presentation=self._presentation))
+
+        self.safety_panel.set_presentation(self._presentation)
+
+        index = self.tabs.indexOf(self.analytics_tab)
+        self.tabs.setTabVisible(index, not self._presentation)
+
+        # With the analytics tab hidden there is a single page left, so the tab
+        # bar would be a lone tab that consumes height the live layout needs.
+        # Hiding the bar - not just the tab - is what buys back the room the
+        # enlarged type costs.
+        self.tabs.tabBar().setVisible(not self._presentation)
+
+        if self._presentation:
+            self.tabs.setCurrentIndex(0)
+            self.showFullScreen()
+        else:
+            self.leave_fullscreen()
+
+        self.presentation_hint.setText(
+            "PRESENTATION MODE  \u00b7  Esc restores  \u00b7  P toggles"
+            if self._presentation
+            else "P presentation  \u00b7  F1 help"
+        )
+
+        self._refresh()
 
     def _install_shortcuts(self) -> None:
         bindings = (
             ("F", self.toggle_fullscreen),
-            ("Escape", self.leave_fullscreen),
+            ("Escape", self.leave_presentation_or_fullscreen),
             ("S", self.request_acknowledge),
             ("A", self.request_acknowledge),
             ("R", self.request_reset),
             ("Q", self.close),
             ("Ctrl+E", self.export_session),
             ("F1", self.show_help),
+            ("P", self.toggle_presentation),
+            ("T", self.request_status),
         )
 
         self._shortcuts: list[QShortcut] = []
@@ -529,11 +782,29 @@ class MainWindow(QMainWindow):
         self.camera_panel.show_frame(frame)
 
         peak = max((box[1] for box in frame.detections), default=0.0)
+
+        # Per-class peaks come from the detections themselves rather than from a
+        # model-internal value: the worker only reports what it actually saw, and
+        # a label with no detection must read as no evidence, not as zero
+        # confidence. None keeps that distinction on the chart.
+        goggles_conf: float | None = None
+        no_goggles_conf: float | None = None
+
+        for label, confidence, *_rest in frame.detections:
+            name = str(label).strip().lower()
+
+            if name in {"goggles", "with_goggles", "safe", "helmet"}:
+                goggles_conf = max(goggles_conf or 0.0, confidence)
+            elif name in {"no_goggles", "nogoggles", "no-goggles", "violation"}:
+                no_goggles_conf = max(no_goggles_conf or 0.0, confidence)
+
         self.charts_panel.push_telemetry(
             fps=frame.fps,
             inference_ms=frame.inference_ms,
             frame_age_ms=max(0.0, (now - frame.at) * 1000.0),
             max_confidence=peak,
+            goggles_confidence=goggles_conf,
+            no_goggles_confidence=no_goggles_conf,
         )
 
         observation = getattr(self.Observation, str(frame.observation), None)
@@ -906,7 +1177,68 @@ class MainWindow(QMainWindow):
         )
         self.control_panel.update_from(snapshot)
         self._update_signal_flow(snapshot)
+        self._update_chips(snapshot)
+        self._update_footer(snapshot)
         self._update_status_bar(snapshot)
+
+        if self._fixture is not None:
+            self._render_fixture_camera()
+
+    def _update_chips(self, snapshot: DashboardSnapshot) -> None:
+        """Populate the secondary warning strip.
+
+        Everything here is true and none of it is urgent, which is exactly why it
+        is a chip and not a banner. A chip that has nothing to say hides itself.
+        """
+
+        self.mode_chip.setText("DEMO DATA" if self.demo_data else "LIVE")
+        self.mode_chip.set_colour(theme.AMBER if self.demo_data else theme.GREEN)
+
+        missing = branding.missing_logos()
+        if missing:
+            self.branding_chip.setText(
+                "LOGO MISSING: " + ", ".join(missing)
+            )
+            self.branding_chip.set_colour(theme.AMBER)
+            self.branding_chip.setVisible(True)
+        else:
+            self.branding_chip.setVisible(False)
+
+        self.blynk_chip.setVisible(not self.demo_data)
+        self.yellow_chip.setVisible(not self.demo_data)
+
+    def _update_footer(self, snapshot: DashboardSnapshot) -> None:
+        board = snapshot.board
+        model = self.weights.split("/")[-1]
+
+        self.footer_label.setText(
+            f"{self.active_tab}"
+            f"   \u00b7   {snapshot.state.value}"
+            f"   \u00b7   board {board.link.value}"
+            f"   \u00b7   {board.port or 'no port'}"
+            f"   \u00b7   model {model}"
+            f"   \u00b7   {snapshot.counters.frames} frames"
+        )
+
+    def _render_fixture_camera(self) -> None:
+        """Paint the labelled demo fixture instead of a webcam frame.
+
+        Deterministic in the step index and unmistakably synthetic: a fake feed
+        that looks real is the one thing a safety dashboard must never show.
+        """
+
+        driver = self._fixture
+
+        if driver is None:
+            return
+
+        status = self.lifecycle.status()
+
+        self.camera_panel.show_fixture(
+            driver.step_index,
+            observation=str(getattr(driver.current_observation, "value", "UNKNOWN")),
+            detections=1 if status.state is OperatorState.ALARM_LATCHED else 0,
+        )
 
     def _health(self):
         return build_health_items(
@@ -934,7 +1266,9 @@ class MainWindow(QMainWindow):
         self.gauge = driver.gauge()
 
         for entry in driver.timeline[self._fixture_timeline_index :]:
-            self.timeline.add(entry)
+            # The driver's entries already carry their own timestamp and state,
+            # so they bypass _log's re-derivation and go straight to the views.
+            self._record(entry)
 
         self._fixture_timeline_index = len(driver.timeline)
 
@@ -944,18 +1278,22 @@ class MainWindow(QMainWindow):
     def _update_signal_flow(self, snapshot: DashboardSnapshot) -> None:
         serial_up = snapshot.board.link is LinkState.OPEN
 
+        firmware_up = bool(snapshot.board.firmware_version)
+        outputs = snapshot.board.outputs
+
         live = {
             "camera": self._camera_ok,
             "detector": self._model_ok,
             "filter": snapshot.counters.frames > 0,
-            "lifecycle": True,
+            "lifecycle": snapshot.state is not OperatorState.FAULT,
             "serial": serial_up,
-            "pins": snapshot.board.outputs.reported,
+            "esp32": firmware_up,
+            "outputs": outputs.reported,
         }
 
         break_at = ""
 
-        for key in ("camera", "detector", "filter", "serial", "pins"):
+        for key in ("camera", "detector", "filter", "lifecycle", "serial", "esp32", "outputs"):
             if not live[key]:
                 break_at = key
                 break
@@ -964,11 +1302,16 @@ class MainWindow(QMainWindow):
             "camera": "frames" if live["camera"] else "no frames",
             "detector": "ok" if live["detector"] else "not loaded",
             "filter": f"{snapshot.counters.frames} frames" if live["filter"] else "idle",
+            "lifecycle": snapshot.state.value if live["lifecycle"] else "fault",
             "serial": "open" if live["serial"] else "closed",
-            "pins": "reported" if live["pins"] else "unknown",
+            "esp32": snapshot.board.firmware_version or "no STATUS",
+            "outputs": "reported" if live["outputs"] else "unknown",
         }
 
         self.signal_flow.set_flow(live, break_at=break_at, notes=notes)
+
+        if hasattr(self, "live_flow_note"):
+            self.live_flow_note.setText(self.signal_flow.summary_line())
 
     def _update_status_bar(self, snapshot: DashboardSnapshot) -> None:
         blocker = self.lifecycle.reset_blocker()
@@ -996,27 +1339,84 @@ class MainWindow(QMainWindow):
             )
             return
 
-        reasons: list[str] = []
+        # One banner, ordered by consequence. A fault parks the outputs; a dead
+        # serial link means the board never hears anything; a dead camera means
+        # no verdict is ever produced. Everything below that is advisory, and an
+        # advisory must never overwrite an urgent line - so the first matching
+        # band wins and lower bands are not appended to it.
+        status = self.lifecycle.status()
 
-        # Without a configured port nothing can reach the board, however healthy
-        # the camera is. That is the most important thing on the screen.
+        if status.alarm.value == "FAULT" or status.state.value == "FAULT":
+            detail = status.fault_reason or "a safety input was lost"
+            self.banner.show_banner(
+                f"FAULT \u00b7 {detail} \u00b7 outputs parked", theme.MAGENTA
+            )
+            return
+
         if not self.serial_port:
-            reasons.append("NO SERIAL PORT \u00b7 this window cannot drive the board")
-        elif self._serial_ok is False:
-            reasons.append("SERIAL LINK DOWN \u00b7 the board is not receiving commands")
+            self.banner.show_banner(
+                "NO SERIAL PORT \u00b7 this window cannot drive the board", theme.RED
+            )
+            return
+
+        if self._serial_ok is False:
+            self.banner.show_banner(
+                "SERIAL LINK DOWN \u00b7 the board is not receiving commands", theme.RED
+            )
+            return
 
         if not self._camera_ok:
-            reasons.append("CAMERA UNAVAILABLE \u00b7 no verdicts are being produced")
+            self.banner.show_banner(
+                "CAMERA UNAVAILABLE \u00b7 no verdicts are being produced", theme.RED
+            )
+            return
 
-        if reasons:
-            self.banner.show_banner("   \u00b7   ".join(reasons), theme.RED)
+        age = self._status_age
+        if age is not None and age > STALE_STATUS_SECONDS:
+            self.banner.show_banner(
+                f"FIRMWARE STATUS STALE \u00b7 last reply {age:.0f}s ago "
+                "\u00b7 lamp state is unverified",
+                theme.ORANGE,
+            )
+            return
+
+        # Advisory band: presentation-only warnings, shown only when nothing
+        # safety-relevant is wrong.
+        advisory: list[str] = []
+
+        if not self.metrics_panel.table.available:
+            advisory.append("model metrics unavailable")
+
+        if branding.missing_logos():
+            advisory.append(
+                "branding logo missing: " + ", ".join(branding.missing_logos())
+            )
+
+        if advisory:
+            self.banner.show_banner(
+                "   \u00b7   ".join(advisory).upper(), theme.AMBER
+            )
         else:
             self.banner.hide_banner()
 
+    def _record(self, entry: TimelineEntry) -> None:
+        """Fan one already-built entry out to every timeline view."""
+
+        self.timeline.add(entry)
+        self.live_timeline.add(entry)
+        self.diagnostics_table.add(entry)
+
     def _log(self, kind: str, message: str, *, source: str = "lifecycle") -> None:
+        """Record one event in every timeline view.
+
+        All three views are fed from here rather than on tab switch, because a
+        view rebuilt on demand would show a gap for anything that happened while
+        it was hidden - and the analytics tab is normally hidden.
+        """
+
         status = self.lifecycle.status()
 
-        self.timeline.add(
+        self._record(
             TimelineEntry(
                 at=time.monotonic() - self._session_start,
                 kind=kind,
@@ -1039,15 +1439,44 @@ class MainWindow(QMainWindow):
         if self.isFullScreen():
             self.showNormal()
 
+    def leave_presentation_or_fullscreen(self) -> None:
+        """Esc steps out of presentation mode first, then out of fullscreen.
+
+        One key for both would mean a presenter has to press Esc twice with no
+        indication that the first press did anything.
+        """
+
+        if self._presentation:
+            self.set_presentation(False)
+            return
+
+        self.leave_fullscreen()
+
+    def request_status(self) -> None:
+        """Ask the board for STATUS now, without claiming the correlation slot."""
+
+        if self._serial is None:
+            self._log(
+                "operator",
+                "Status request ignored: no serial port open",
+                source="operator",
+            )
+            return
+
+        self._serial.worker.send("STATUS")
+        self._log("operator", "Status requested", source="operator")
+
     def show_help(self) -> None:
         QMessageBox.information(
             self,
             "Keyboard shortcuts",
             "F       toggle fullscreen\n"
-            "Esc     leave fullscreen\n"
+            "P       presentation mode (larger type, analytics hidden)\n"
+            "Esc     leave presentation mode or fullscreen\n"
             "S       silence (same as acknowledge)\n"
             "A       acknowledge\n"
             "R       request reset\n"
+            "T       request a board STATUS poll\n"
             "Ctrl+E  export the session timeline\n"
             "Q       quit\n"
             "F1      this help",

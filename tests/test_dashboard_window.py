@@ -245,7 +245,7 @@ def test_shortcuts_exist_for_every_documented_key(window):
         shortcut.key().toString() for shortcut in window._shortcuts
     }
 
-    for expected in ("F", "Esc", "S", "A", "R", "Q", "Ctrl+E", "F1"):
+    for expected in ("F", "Esc", "S", "A", "R", "Q", "Ctrl+E", "F1", "P", "T"):
         assert expected in sequences
 
 
@@ -298,9 +298,16 @@ def test_every_panel_renders_from_a_snapshot(window):
         window.hardware_panel,
         window.incident_panel,
         window.health_panel,
-        window.charts_panel,
         window.control_panel,
     ):
         assert panel.isVisible()
+
+    # The charts live on the analytics tab, so they are only visible once that
+    # tab is raised. Checking them while the live tab is showing would assert
+    # the tab bar, not the panel.
+    assert not window.charts_panel.isVisible()
+
+    window.tabs.setCurrentIndex(1)
+    assert window.charts_panel.isVisible()
 
     assert theme.style_for_state(window.lifecycle.status().state)

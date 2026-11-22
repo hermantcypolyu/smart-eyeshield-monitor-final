@@ -206,6 +206,62 @@ def state_accent(state: OperatorState | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Typography scale
+# ---------------------------------------------------------------------------
+
+#: Named sizes in points. The dashboard is read from a projector across a room
+#: as well as at a desk, so the important text is deliberately large and the
+#: quiet text is never smaller than 9pt.
+TYPE_SCALE: dict[str, int] = {
+    "micro": 9,
+    "caption": 10,
+    "body": 12,
+    "label": 11,
+    "value": 20,
+    "metric": 24,
+    "state": 34,
+    "banner": 13,
+    "tab": 15,
+}
+
+
+def font_size(token: str) -> int:
+    """Point size for a scale token, defaulting to body size."""
+
+    return TYPE_SCALE.get(token, TYPE_SCALE["body"])
+
+
+#: Multiplier applied to ``TYPE_SCALE`` while presentation mode is on. Only the
+#: sizes grow: no colour, no layout order and no behaviour changes.
+PRESENTATION_SCALE = 1.35
+
+
+def scaled(token: str, *, presentation: bool = False) -> int:
+    """Point size for ``token``, enlarged for presentation mode."""
+
+    size = font_size(token)
+    if not presentation:
+        return size
+    return max(size + 1, round(size * PRESENTATION_SCALE))
+
+
+# ---------------------------------------------------------------------------
+# Tab shell
+# ---------------------------------------------------------------------------
+
+#: The two top-level views. Named here so the window and the tests agree.
+TAB_LIVE = "LIVE OPERATIONS"
+TAB_ANALYTICS = "ANALYTICS & EVIDENCE"
+TAB_TITLES: tuple[str, str] = (TAB_LIVE, TAB_ANALYTICS)
+
+#: Subtitle shown under each tab, one short sentence each as the brief demands.
+TAB_SUBTITLES: dict[str, str] = {
+    TAB_LIVE: "Camera, verdict, hardware outputs and operator controls.",
+    TAB_ANALYTICS: "Model evidence, rolling telemetry, counters and the full event record.",
+}
+
+
+# ---------------------------------------------------------------------------
 # Stylesheet
 # ---------------------------------------------------------------------------
 
@@ -248,16 +304,55 @@ QLabel#HeaderSubtitle {{
     color: {TEXT_ON_WHITE};
 }}
 
-QLabel#HeaderContext {{
-    font-size: 10px;
-    color: #5A6B85;
-}}
-
 QLabel#HeaderClock {{
     font-size: 12px;
     font-weight: 600;
     font-family: "SF Mono", "Menlo", monospace;
     color: {TEXT_ON_WHITE};
+}}
+
+/* --- Tabs -------------------------------------------------------------- */
+
+QTabWidget::pane {{
+    border: none;
+    background-color: {NAVY};
+    top: -1px;
+}}
+
+QTabBar {{
+    qproperty-drawBase: 0;
+    background-color: transparent;
+}}
+
+QTabBar::tab {{
+    background-color: {CARD};
+    color: {TEXT_MUTED};
+    border: 1px solid {BORDER};
+    border-bottom: 3px solid {BORDER};
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 7px 26px;
+    margin-right: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    min-width: 210px;
+}}
+
+QTabBar::tab:hover {{
+    color: {TEXT};
+    border-bottom-color: {BURGUNDY_DARK};
+}}
+
+QTabBar::tab:selected {{
+    background-color: {CARD_RAISED};
+    color: {HEADER_WHITE};
+    border-color: {BORDER};
+    border-bottom: 3px solid {BURGUNDY};
+}}
+
+QTabBar::tab:selected QLabel {{
+    color: {HEADER_WHITE};
 }}
 
 /* --- Cards ------------------------------------------------------------- */
@@ -275,8 +370,10 @@ QFrame#Card QLabel {{
 QLabel#CardTitle {{
     font-size: 11px;
     font-weight: 700;
-    color: {TEXT_MUTED};
+    color: {TEXT};
     letter-spacing: 1.1px;
+    border-left: 3px solid {BURGUNDY};
+    padding-left: 8px;
 }}
 
 QLabel#CardCaption {{
@@ -297,16 +394,53 @@ QLabel#MetricLabel {{
     letter-spacing: 0.8px;
 }}
 
+QFrame#MetricTile {{
+    background-color: {CARD_RAISED};
+    border-top: 2px solid {BURGUNDY};
+    border-radius: 6px;
+}}
+
 QLabel#MonoValue {{
     font-family: "SF Mono", "Menlo", monospace;
     font-size: 12px;
 }}
 
+QLabel#Chip {{
+    border-radius: 9px;
+    padding: 3px 9px;
+    font-size: 10px;
+    font-weight: 700;
+}}
+
 QLabel#Banner {{
     border-radius: 6px;
-    padding: 9px 14px;
-    font-size: 13px;
+    padding: 5px 14px;
+    font-size: 12px;
     font-weight: 600;
+}}
+
+QLabel#Footer {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    font-weight: 600;
+    font-family: "SF Mono", "Menlo", monospace;
+    background-color: {CARD};
+    border-top: 1px solid {BORDER};
+    padding: 3px 12px;
+}}
+
+QLabel#EmptyState {{
+    color: {TEXT_MUTED};
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    padding: 10px 0;
+}}
+
+QLabel#TabSubtitle {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    padding: 2px 0 6px 2px;
 }}
 
 /* --- Tables ------------------------------------------------------------ */
@@ -363,14 +497,25 @@ QPushButton:disabled {{
     background-color: {NAVY};
 }}
 
-QPushButton#Primary {{
+QPushButton#Primary, QPushButton#PrimaryButton {{
     background-color: {BURGUNDY};
     border-color: {BURGUNDY};
     color: #FFFFFF;
 }}
 
-QPushButton#Primary:hover {{
+QPushButton#Primary:hover, QPushButton#PrimaryButton:hover {{
     background-color: {BURGUNDY_DARK};
+}}
+
+QPushButton#SecondaryButton {{
+    background-color: {CARD};
+    border-color: {BORDER};
+    color: {TEXT};
+}}
+
+QPushButton#SecondaryButton:hover {{
+    border-color: {TEXT_MUTED};
+    background-color: {CARD_RAISED};
 }}
 
 QCheckBox, QRadioButton {{
@@ -457,4 +602,80 @@ QLabel#PlaceholderNote {{
     font-size: 10px;
     font-weight: 600;
 }}
+
+/* --- Focus ------------------------------------------------------------- */
+
+QPushButton:focus {{
+    outline: none;
+    border: 2px solid {BURGUNDY};
+}}
+
+QPushButton#Primary:focus {{
+    border: 2px solid {TEXT};
+}}
+
+QTableWidget:focus {{
+    border: 1px solid {BURGUNDY};
+}}
+
+QScrollArea:focus {{
+    border: none;
+}}
 """
+
+
+#: Extra rules applied only while presentation mode is on. Kept as a separate
+#: string so the normal sheet stays byte-identical and the switch is a single
+#: ``setStyleSheet`` call that cannot half-apply.
+PRESENTATION_STYLESHEET = f"""
+QLabel#CardTitle {{
+    font-size: 14px;
+}}
+
+QLabel#CardCaption {{
+    font-size: 12px;
+}}
+
+QLabel#MetricValue {{
+    font-size: 30px;
+}}
+
+QLabel#MetricLabel {{
+    font-size: 12px;
+}}
+
+QLabel#Banner {{
+    font-size: 17px;
+    padding: 12px 18px;
+}}
+
+QLabel#Footer {{
+    font-size: 13px;
+    padding: 9px 14px;
+}}
+
+QTableWidget, QTableView {{
+    font-size: 14px;
+}}
+
+QHeaderView::section {{
+    font-size: 12px;
+}}
+
+QTabBar::tab {{
+    font-size: 17px;
+    padding: 13px 34px;
+}}
+
+QLabel#EmptyState {{
+    font-size: 14px;
+}}
+"""
+
+
+def stylesheet(*, presentation: bool = False) -> str:
+    """The full sheet, optionally with the presentation-mode overrides."""
+
+    if not presentation:
+        return STYLESHEET
+    return STYLESHEET + PRESENTATION_STYLESHEET

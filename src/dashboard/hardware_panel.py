@@ -144,9 +144,7 @@ class HardwarePanel(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "ESP32 node",
-            caption="Lamp states come from the firmware's own STATUS line, not "
-            "from laptop intent. Requested / acknowledged / physical are shown "
-            "separately because they can disagree.",
+            caption="Lamps report STATUS, not intent. All three provenances show.",
             parent=parent,
         )
 
@@ -208,9 +206,17 @@ class HardwarePanel(Card):
             "status_age": KeyValueRow("Last STATUS"),
         }
 
-        for row in self.rows.values():
-            self.body.addWidget(row)
+        # Two columns of three: six stacked rows cost ~30 px more than the live
+        # tab can spare, and none of these values need a full-width line.
+        rows_grid = QGridLayout()
+        rows_grid.setContentsMargins(0, 0, 0, 0)
+        rows_grid.setHorizontalSpacing(16)
+        rows_grid.setVerticalSpacing(2)
 
+        for index, row in enumerate(self.rows.values()):
+            rows_grid.addWidget(row, index // 2, index % 2)
+
+        self.body.addLayout(rows_grid)
         self.body.addStretch(1)
 
     def update_from(
