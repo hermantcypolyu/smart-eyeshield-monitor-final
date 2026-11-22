@@ -476,3 +476,103 @@ def test_demo_session_reaches_every_timeline_view(window):
 
     assert window.live_timeline.row_texts()
     assert window.diagnostics_table.row_texts()
+
+
+# -- PolyU visual identity ---------------------------------------------------
+
+
+def test_typography_matches_the_university_site():
+    """PolyU's own pages are Arial/Helvetica. A serif fallback would read
+    as a different institution's dashboard."""
+
+    assert theme.FONT_FAMILY_QT == "Arial"
+    assert "Arial" in theme.FONT_FAMILY
+    assert "Helvetica" in theme.FONT_FAMILY
+
+    sheet = theme.stylesheet()
+
+    # Every widget inherits this, so the whole dashboard follows the brand.
+    assert f"font-family: {theme.FONT_FAMILY}" in sheet
+
+
+def test_active_tab_is_a_solid_burgundy_block_with_white_text():
+    """The official site marks the current section with a filled burgundy tab.
+
+    An outline or a tinted background is not the same affordance, so this
+    asserts the fill, the text colour and that no bottom border survives to
+    cut the block short.
+    """
+
+    sheet = theme.stylesheet()
+    block = sheet.split("QTabBar::tab:selected", 1)[1].split("}", 1)[0]
+
+    assert f"background-color: {theme.BURGUNDY}" in block
+    assert f"color: {theme.HEADER_WHITE}" in block
+
+
+def test_card_title_accent_is_a_heavy_burgundy_rule():
+    """3px read as a smudge at demo distance and was confusable with the
+    alarm red used on the safety state card."""
+
+    sheet = theme.stylesheet()
+    block = sheet.split("QLabel#CardTitle", 1)[1].split("}", 1)[0]
+
+    assert f"border-left: 5px solid {theme.BURGUNDY}" in block
+    # Burgundy, emphatically not the alarm red that means "take action".
+    assert f"border-left: 5px solid {theme.RED}" not in block
+    assert theme.BURGUNDY != theme.RED
+
+
+def test_operator_buttons_are_a_large_click_target(qapp, window):
+    """The operator buttons were the smallest thing on the screen and are the
+    one control an operator must hit under pressure."""
+
+    primary = window.control_panel.acknowledge_button
+    secondary = window.control_panel.help_button
+
+    assert primary.minimumHeight() >= 40
+    assert secondary.minimumHeight() >= 32
+    assert primary.minimumHeight() > secondary.minimumHeight()
+
+
+def test_every_operator_button_shares_its_row_height(qapp, window):
+    """A row of buttons at different heights looks like a bug, and the reason
+    line underneath assumes a fixed height."""
+
+    panel = window.control_panel
+
+    for group in (panel.primary_group, panel.secondary_group):
+        heights = {button.minimumHeight() for button in group.buttons}
+        assert len(heights) == 1
+
+
+def test_evidence_tab_shows_the_same_camera_feed(qapp, window):
+    """An operator reviewing an incident should not have to switch tabs to
+    confirm what the model saw."""
+
+    window.tabs.setCurrentIndex(1)
+
+    assert window.evidence_camera.isVisible()
+    # Same widget class, so the same rendering path, footer and all.
+    assert type(window.evidence_camera) is type(window.camera_panel)
+
+
+def test_placeholder_logo_is_light_not_a_dark_block(qapp):
+    """The old placeholder was a dark filled box with a dashed border, which
+    looked broken next to the white PolyU header."""
+
+    spec = branding.EIE
+
+    assert not branding.logo_available(spec)
+
+    image = branding.load_logo(spec).toImage()
+
+    assert image.width() > 0 and image.height() > 0
+    # Aspect ratio comes from the placeholder ratio, so the header reserve and
+    # the painted box agree.
+    assert abs(image.width() / image.height() - branding.logo_aspect(spec)) < 0.05
+
+
+def test_logo_aspect_falls_back_to_the_placeholder_ratio():
+    assert branding.logo_aspect(branding.EIE) == 2.4
+    assert branding.logo_aspect(branding.POLYU) == 2.4

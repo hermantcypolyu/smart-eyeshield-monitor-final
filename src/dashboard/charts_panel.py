@@ -130,7 +130,7 @@ class SeriesPlot(QWidget):
             painter.end()
 
     def _draw_title(self, painter: QPainter, outer: QRectF) -> None:
-        font = QFont("Helvetica Neue", 8)
+        font = QFont(theme.FONT_FAMILY_QT, 8)
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor(theme.TEXT))
@@ -156,14 +156,14 @@ class SeriesPlot(QWidget):
     def _draw_empty(self, painter: QPainter, outer: QRectF) -> None:
         """A plot with no samples states that fact instead of drawing nothing."""
 
-        font = QFont("Helvetica Neue", 9)
+        font = QFont(theme.FONT_FAMILY_QT, 9)
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor(theme.TEXT_MUTED))
         painter.drawText(outer, Qt.AlignCenter, self.empty_text)
 
     def _draw_legend(self, painter: QPainter, outer: QRectF) -> None:
-        font = QFont("Helvetica Neue", 8)
+        font = QFont(theme.FONT_FAMILY_QT, 8)
         painter.setFont(font)
 
         x = outer.left() + _AXIS_GUTTER
@@ -197,7 +197,7 @@ class SeriesPlot(QWidget):
             QPointF(plot.left(), plot.bottom()),
         )
 
-        font = QFont("Helvetica Neue", 7)
+        font = QFont(theme.FONT_FAMILY_QT, 7)
         painter.setFont(font)
 
         for fraction in (0.0, 0.5, 1.0):
@@ -223,7 +223,7 @@ class SeriesPlot(QWidget):
         painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
 
         if self._threshold_label:
-            font = QFont("Helvetica Neue", 7)
+            font = QFont(theme.FONT_FAMILY_QT, 7)
             font.setBold(True)
             painter.setFont(font)
             painter.setPen(QColor(theme.ORANGE))
@@ -268,7 +268,7 @@ class SeriesPlot(QWidget):
             painter.drawEllipse(last, 2.6, 2.6)
 
     def _draw_window_label(self, painter: QPainter, outer: QRectF) -> None:
-        font = QFont("Helvetica Neue", 7)
+        font = QFont(theme.FONT_FAMILY_QT, 7)
         painter.setFont(font)
         painter.setPen(QColor(theme.TEXT_MUTED))
         painter.drawText(
@@ -351,7 +351,7 @@ class GaugeWidget(QWidget):
         try:
             outer = QRectF(self.rect()).adjusted(2, 2, -3, -3)
 
-            font = QFont("Helvetica Neue", 8)
+            font = QFont(theme.FONT_FAMILY_QT, 8)
             font.setBold(True)
             painter.setFont(font)
             painter.setPen(QColor(theme.TEXT))
@@ -397,7 +397,7 @@ class GaugeWidget(QWidget):
             painter.end()
 
     def _draw_timer(self, painter: QPainter, outer: QRectF, trough: QRectF) -> None:
-        font = QFont("Helvetica Neue", 9)
+        font = QFont(theme.FONT_FAMILY_QT, 9)
         font.setBold(True)
         painter.setFont(font)
 
@@ -527,13 +527,13 @@ class DurationBars(QWidget):
         try:
             if not self._shares:
                 painter.setPen(QColor(theme.TEXT_MUTED))
-                font = QFont("Helvetica Neue", 9)
+                font = QFont(theme.FONT_FAMILY_QT, 9)
                 font.setBold(True)
                 painter.setFont(font)
                 painter.drawText(self.rect(), Qt.AlignCenter, "NO SESSION TIME YET")
                 return
 
-            font = QFont("Helvetica Neue", 8)
+            font = QFont(theme.FONT_FAMILY_QT, 8)
             painter.setFont(font)
 
             top = 2

@@ -108,10 +108,10 @@ class SignalFlowWidget(QWidget):
             node_height = 26.0
             top = 3.0
 
-            title_font = QFont("Helvetica Neue", 6)
+            title_font = QFont(theme.FONT_FAMILY_QT, 6)
             title_font.setBold(True)
-            note_font = QFont("Helvetica Neue", 6)
-            value_font = QFont("Helvetica Neue", 7)
+            note_font = QFont(theme.FONT_FAMILY_QT, 6)
+            value_font = QFont(theme.FONT_FAMILY_QT, 7)
             value_font.setBold(True)
 
             for index, (key, name) in enumerate(STAGES):

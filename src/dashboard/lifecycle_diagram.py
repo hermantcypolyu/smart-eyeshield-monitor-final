@@ -245,7 +245,7 @@ class DiagramNode(QGraphicsItem):
 
         painter.drawRoundedRect(box, 5.0, 5.0)
 
-        name_font = QFont("Helvetica Neue", 8)
+        name_font = QFont(theme.FONT_FAMILY_QT, 8)
         name_font.setBold(True)
         painter.setFont(name_font)
         painter.setPen(
@@ -257,7 +257,7 @@ class DiagramNode(QGraphicsItem):
             self._label,
         )
 
-        sub_font = QFont("Helvetica Neue", 6)
+        sub_font = QFont(theme.FONT_FAMILY_QT, 6)
         painter.setFont(sub_font)
         sub_colour = QColor(
             theme.HEADER_WHITE if self._active else theme.TEXT_MUTED
@@ -277,7 +277,7 @@ class DiagramNode(QGraphicsItem):
         )
 
         if self._blocked:
-            painter.setFont(QFont("Helvetica Neue", 6))
+            painter.setFont(QFont(theme.FONT_FAMILY_QT, 6))
             painter.setPen(QColor(theme.RED))
             painter.drawText(
                 QRectF(box.left(), box.bottom() + 1, box.width(), 10),
@@ -317,7 +317,7 @@ class LifecycleDiagram(QGraphicsView):
         self.setBackgroundBrush(QBrush(QColor(0, 0, 0, 0)))
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setMinimumHeight(132)
+        self.setMinimumHeight(120)
 
         self.nodes: dict[Node, DiagramNode] = {}
         self.current: Node | None = None
@@ -440,7 +440,7 @@ class LifecycleDiagram(QGraphicsView):
 
         text = self._scene.addSimpleText(label)
         text.setBrush(QBrush(QColor(theme.TEXT_MUTED)))
-        text.setFont(QFont("Helvetica Neue", 6))
+        text.setFont(QFont(theme.FONT_FAMILY_QT, 6))
         text.setAcceptedMouseButtons(Qt.NoButton)
 
         bounds = text.boundingRect()
@@ -501,7 +501,7 @@ class LifecycleDiagram(QGraphicsView):
 
         note = self._scene.addSimpleText("any subsystem untrusted")
         note.setBrush(QBrush(QColor(theme.MAGENTA)))
-        note.setFont(QFont("Helvetica Neue", 6))
+        note.setFont(QFont(theme.FONT_FAMILY_QT, 6))
         note.setAcceptedMouseButtons(Qt.NoButton)
         bounds = note.boundingRect()
         note.setPos(high + 6.0, bus_y - bounds.height() / 2)

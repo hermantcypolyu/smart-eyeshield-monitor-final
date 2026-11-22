@@ -174,6 +174,40 @@ model evidence read from `experiments/ai_metrics.csv`, and the unfiltered event
 record. Charts are fed continuously even while the tab is hidden — switching
 tabs is a paint operation, never a replay.
 
+It also carries its **own `CameraPanel`**, fed from the same `_on_frame`
+callback as the live one. An operator reviewing an incident should not have to
+switch tabs to confirm what the model saw, and a frozen last-known frame is
+evidence that the feed is still live rather than a screenshot.
+
+### PolyU visual identity
+
+The dashboard follows the University's own visual language. The mapping lives in
+`theme.py` so it is one edit, not a hunt:
+
+| Element | Treatment |
+| --- | --- |
+| Type | `Arial, Helvetica, "Helvetica Neue", "Segoe UI", sans-serif` |
+| Active tab | solid `BURGUNDY` block, white text, no bottom border |
+| Card titles | 5px `BURGUNDY` left rule |
+| Header | white background, logos scaled on height only |
+| Buttons | 14px/700 primary, 12px/600 secondary |
+
+The card-title rule is deliberately **burgundy, not alarm red**. Red on this
+dashboard means "an operator must act now"; using it for decoration would spend
+the strongest signal the interface has on a heading.
+
+`BURGUNDY` is a brand accent, so it never encodes state. State colour stays
+owned by `STATE_STYLES` and the lamp glyphs.
+
+Operator buttons are sized for a demo, not for a form: 42px primary and 34px
+secondary, so a button is a target rather than a line of text. **That height is
+not free.** The live page has only ~20 px of vertical slack at 1080p, so
+growing the buttons required shrinking `LifecycleDiagram`'s minimum from 132 to
+120 px. If you add vertical demand anywhere on the live tab, re-run
+`test_live_tab_fits_1080p_without_scrolling` — a page whose minimum exceeds its
+viewport does not merely scroll, it sends Qt's layout engine into unbounded
+`setGeometry` recursion and the process dies in `QWidget::show()`.
+
 The live tab is designed to fit a 1080p viewport without scrolling. It is
 measured, not assumed: `test_dashboard_presentation.py` resizes the window to
 1920x1080 and asserts the scroll bar stays hidden **in both normal and
@@ -252,7 +286,9 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_dashboard_*.py -
 presentation mode (including tab-bar hiding and the button object-name/selector
 pairing), chip visibility, banner priority ordering, the 7-node flow, the
 diagram's bounded height, timeline filtering, and the 1080p no-scroll layout
-assertion in both modes.
+assertion in both modes. It also owns the PolyU identity contract — the Arial
+font stack, the filled burgundy active tab, the 5px card-title rule, the
+operator-button click targets, and the light logo placeholder.
 
 The suites are Qt-free where possible (`adapters`, `theme`, `branding`) and use
 a single session-scoped `QApplication` from [`tests/conftest.py`](../tests/conftest.py)

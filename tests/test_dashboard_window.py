@@ -299,15 +299,18 @@ def test_every_panel_renders_from_a_snapshot(window):
         window.incident_panel,
         window.health_panel,
         window.control_panel,
+        window.camera_panel,
     ):
         assert panel.isVisible()
 
-    # The charts live on the analytics tab, so they are only visible once that
-    # tab is raised. Checking them while the live tab is showing would assert
-    # the tab bar, not the panel.
+    # The charts and the evidence camera live on the analytics tab, so they are
+    # only visible once that tab is raised. Checking them while the live tab is
+    # showing would assert the tab bar, not the panel.
     assert not window.charts_panel.isVisible()
+    assert not window.evidence_camera.isVisible()
 
     window.tabs.setCurrentIndex(1)
     assert window.charts_panel.isVisible()
+    assert window.evidence_camera.isVisible()
 
     assert theme.style_for_state(window.lifecycle.status().state)

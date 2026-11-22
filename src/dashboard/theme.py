@@ -49,6 +49,16 @@ TEXT_MUTED = "#93A6C8"
 #: Text on white header.
 TEXT_ON_WHITE = "#16233A"
 
+#: The official PolyU site sets its body copy in Arial and falls back through
+#: the platform sans-serifs. Naming the same stack here keeps the dashboard's
+#: academic register consistent instead of picking up a different face per OS.
+FONT_FAMILY = 'Arial, Helvetica, "Helvetica Neue", "Segoe UI", sans-serif'
+#: Family name for ``QFont`` constructors. Canvas painting cannot take a CSS
+#: fallback list, so it gets the primary family and the OS resolves the rest.
+FONT_FAMILY_QT = "Arial"
+#: Monospace stays for numbers that must not shuffle horizontally as they change.
+FONT_FAMILY_MONO = '"SF Mono", "Menlo", "Consolas", monospace'
+
 
 # ---------------------------------------------------------------------------
 # Safety palette
@@ -271,7 +281,7 @@ STYLESHEET = f"""
 QWidget {{
     background-color: {NAVY};
     color: {TEXT};
-    font-family: "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif;
+    font-family: {FONT_FAMILY};
     font-size: 13px;
 }}
 
@@ -328,27 +338,29 @@ QTabBar::tab {{
     background-color: {CARD};
     color: {TEXT_MUTED};
     border: 1px solid {BORDER};
-    border-bottom: 3px solid {BORDER};
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    padding: 7px 26px;
-    margin-right: 6px;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    padding: 9px 30px;
+    margin-right: 4px;
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.8px;
-    min-width: 210px;
+    min-width: 220px;
 }}
 
 QTabBar::tab:hover {{
     color: {TEXT};
-    border-bottom-color: {BURGUNDY_DARK};
+    background-color: {CARD_RAISED};
 }}
 
+/* The active tab is a solid burgundy block with white text, the way the
+   University site marks the current section. It carries no border so the block
+   reads as one uninterrupted colour rather than a outlined box. */
 QTabBar::tab:selected {{
-    background-color: {CARD_RAISED};
+    background-color: {BURGUNDY};
     color: {HEADER_WHITE};
-    border-color: {BORDER};
-    border-bottom: 3px solid {BURGUNDY};
+    border: 1px solid {BURGUNDY};
 }}
 
 QTabBar::tab:selected QLabel {{
@@ -367,13 +379,16 @@ QFrame#Card QLabel {{
     background-color: transparent;
 }}
 
+/* 5px is wide enough to read as a deliberate brand rule at a glance, while
+   still being obviously narrower and darker than the alarm-red state blocks -
+   burgundy and red must never be confusable on a safety display. */
 QLabel#CardTitle {{
     font-size: 11px;
     font-weight: 700;
     color: {TEXT};
     letter-spacing: 1.1px;
-    border-left: 3px solid {BURGUNDY};
-    padding-left: 8px;
+    border-left: 5px solid {BURGUNDY};
+    padding-left: 9px;
 }}
 
 QLabel#CardCaption {{
@@ -497,20 +512,36 @@ QPushButton:disabled {{
     background-color: {NAVY};
 }}
 
+/* Primary actions are what an operator reaches for mid-incident, so they get
+   the burgundy fill and the largest type in the card. Secondary actions stay
+   quiet on purpose: read-only housekeeping should never compete for the eye
+   with the three buttons that change safety state. */
 QPushButton#Primary, QPushButton#PrimaryButton {{
     background-color: {BURGUNDY};
-    border-color: {BURGUNDY};
+    border: 1px solid {BURGUNDY};
     color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 9px 16px;
 }}
 
 QPushButton#Primary:hover, QPushButton#PrimaryButton:hover {{
     background-color: {BURGUNDY_DARK};
+    border-color: {BURGUNDY_DARK};
+}}
+
+QPushButton#Primary:pressed, QPushButton#PrimaryButton:pressed {{
+    background-color: #5E0A18;
 }}
 
 QPushButton#SecondaryButton {{
     background-color: {CARD};
-    border-color: {BORDER};
+    border: 1px solid {BORDER};
     color: {TEXT};
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
 }}
 
 QPushButton#SecondaryButton:hover {{
@@ -610,7 +641,7 @@ QPushButton:focus {{
     border: 2px solid {BURGUNDY};
 }}
 
-QPushButton#Primary:focus {{
+QPushButton#Primary:focus, QPushButton#PrimaryButton:focus {{
     border: 2px solid {TEXT};
 }}
 

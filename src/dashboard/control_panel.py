@@ -48,6 +48,14 @@ from .widgets import Card
 #: Fixed reason-line height, so enabling a button cannot resize the card.
 _REASON_HEIGHT = 24
 
+#: Operator buttons are the primary mouse target during a demo, so they are
+#: deliberately taller than a stock button. These heights are also the reason
+#: the diagram below gives back 12 px: the live page has only ~20 px of vertical
+#: slack at 1080p, and a page whose minimum exceeds the viewport sends Qt's
+#: layout engine into unbounded setGeometry recursion instead of scrolling.
+_PRIMARY_HEIGHT = 42
+_SECONDARY_HEIGHT = 34
+
 
 class _ActionGroup(QWidget):
     """A titled row of buttons, each with a permanent reason line underneath."""
@@ -80,8 +88,10 @@ class _ActionGroup(QWidget):
         return tuple(self.reason_labels)
 
     def add_button(self, button: QPushButton, *, primary: bool = False) -> None:
-        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        button.setMinimumHeight(34 if primary else 28)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        button.setMinimumHeight(
+            _PRIMARY_HEIGHT if primary else _SECONDARY_HEIGHT
+        )
 
         button.setObjectName("PrimaryButton" if primary else "SecondaryButton")
 
@@ -91,7 +101,10 @@ class _ActionGroup(QWidget):
         reason.setWordWrap(True)
         reason.setFixedHeight(_REASON_HEIGHT)
         reason.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        reason.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 9px;")
+        reason.setStyleSheet(
+            f"color: {theme.TEXT_MUTED}; "
+            f"font-size: {theme.font_size('micro')}px;"
+        )
         self._reasons.addWidget(reason, 1)
 
         self.reason_labels[button] = reason

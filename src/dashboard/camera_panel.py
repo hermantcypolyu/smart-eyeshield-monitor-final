@@ -123,7 +123,7 @@ class FrameView(QLabel):
 
             if self._image is None or self._image.isNull():
                 painter.setPen(QColor(theme.TEXT_MUTED))
-                painter.setFont(QFont("Helvetica Neue", 11))
+                painter.setFont(QFont(theme.FONT_FAMILY_QT, 11))
                 painter.drawText(self.rect(), Qt.AlignCenter, self._placeholder)
                 return
 
@@ -147,7 +147,7 @@ class FrameView(QLabel):
                 painter.drawRect(box)
 
                 label = f"{name} {score:.2f}"
-                font = QFont("Helvetica Neue", 8)
+                font = QFont(theme.FONT_FAMILY_QT, 8)
                 font.setBold(True)
                 painter.setFont(font)
 
@@ -268,7 +268,7 @@ class FrameView(QLabel):
         self._paint_fixture_banner(painter, area)
 
         if step >= 0:
-            marker = QFont("Helvetica Neue", 8)
+            marker = QFont(theme.FONT_FAMILY_QT, 8)
             painter.setFont(marker)
             painter.setPen(QColor(theme.TEXT_MUTED))
             painter.drawText(
@@ -289,7 +289,7 @@ class FrameView(QLabel):
         painter.setBrush(QColor(theme.ORANGE))
         painter.drawRoundedRect(banner, 3, 3)
 
-        font = QFont("Helvetica Neue", 8)
+        font = QFont(theme.FONT_FAMILY_QT, 8)
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor("#FFFFFF"))
@@ -324,7 +324,7 @@ class FrameView(QLabel):
         text = f"RAW  {self._observation}"
         colour = OBSERVATION_COLOURS.get(self._observation, theme.GREY)
 
-        font = QFont("Helvetica Neue", 9)
+        font = QFont(theme.FONT_FAMILY_QT, 9)
         font.setBold(True)
         painter.setFont(font)
 

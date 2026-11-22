@@ -73,7 +73,11 @@ def missing_logos() -> tuple[str, ...]:
 
 
 def placeholder_pixmap(width: int, height: int, label: str) -> QPixmap:
-    """Draw a bordered placeholder that names what is missing.
+    """Draw the reserved space for a mark that is not present.
+
+    The header sits on white, so the placeholder does too. It is an empty slot
+    with a hairline rule and a small name - not a dark filled box, which at
+    header scale reads as a heavy block competing with the title.
 
     Deliberately plain and obviously not a logo, so it can never be mistaken for
     the real mark in a screenshot.
@@ -85,42 +89,57 @@ def placeholder_pixmap(width: int, height: int, label: str) -> QPixmap:
     painter = QPainter(pixmap)
     try:
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(QPen(QColor(theme.BORDER), 1, Qt.DashLine))
-        painter.setBrush(QColor("#0E2145"))
-        painter.drawRoundedRect(
-            QRectF(0.5, 0.5, width - 1.0, height - 1.0), 4.0, 4.0
-        )
 
-        # A burgundy rule along the top makes the placeholder read as a
-        # deliberate design element rather than a broken image.
-        painter.setPen(QPen(QColor(theme.BURGUNDY), 2))
-        painter.drawLine(
-            int(width * 0.18), 3, int(width * 0.82), 3
-        )
+        # Hairline outline only: enough to say "a slot is reserved here", faint
+        # enough that it does not read as a mark of its own.
+        painter.setPen(QPen(QColor("#D6DCE5"), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(QRectF(0.5, 0.5, width - 1.0, height - 1.0))
 
-        font = QFont("Helvetica Neue", 8)
+        font = QFont(theme.FONT_FAMILY_QT, 7)
         font.setBold(True)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
         painter.setFont(font)
-        painter.setPen(QColor(theme.TEXT))
+        painter.setPen(QColor(theme.BURGUNDY))
         painter.drawText(
-            QRectF(0, 0, width, height * 0.62),
+            QRectF(0, height * 0.20, width, height * 0.42),
             Qt.AlignCenter,
             label,
         )
 
         font.setPointSize(6)
         font.setBold(False)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 0.0)
         painter.setFont(font)
-        painter.setPen(QColor(theme.TEXT_MUTED))
+        painter.setPen(QColor("#7A8699"))
         painter.drawText(
-            QRectF(0, height * 0.52, width, height * 0.42),
+            QRectF(0, height * 0.58, width, height * 0.34),
             Qt.AlignCenter,
-            "LOGO MISSING",
+            "LOGO NOT ADDED",
         )
     finally:
         painter.end()
 
     return pixmap
+
+
+def logo_aspect(spec: LogoSpec) -> float:
+    """Width/height of the real asset, or 2.4 for the placeholder.
+
+    The header reserves its width from this, so adding the real logo cannot
+    reflow the title. Derived from the file rather than hard-coded, because the
+    two University marks do not share a ratio.
+    """
+
+    if not logo_available(spec):
+        return 2.4
+
+    source = QPixmap(str(spec.path))
+
+    if source.isNull() or source.height() <= 0:
+        return 2.4
+
+    return source.width() / source.height()
 
 
 def load_logo(spec: LogoSpec, max_height: int | None = None) -> QPixmap:
@@ -133,16 +152,19 @@ def load_logo(spec: LogoSpec, max_height: int | None = None) -> QPixmap:
     height = max_height or spec.height
 
     if not logo_available(spec):
-        return placeholder_pixmap(int(height * 2.4), height, spec.label)
+        return placeholder_pixmap(
+            int(round(height * logo_aspect(spec))), height, spec.label
+        )
 
     source = QPixmap(str(spec.path))
 
-    if source.isNull():
+    if source.isNull() or source.height() <= 0:
         # Present but unreadable - corrupt file, wrong format, no image plugin.
-        return placeholder_pixmap(int(height * 2.4), height, spec.label)
-
-    if source.height() <= 0:
-        return placeholder_pixmap(int(height * 2.4), height, spec.label)
+        # logo_aspect() takes the same branch, so the placeholder is the size
+        # the header already reserved for it.
+        return placeholder_pixmap(
+            int(round(height * logo_aspect(spec))), height, spec.label
+        )
 
     scaled = source.scaledToHeight(height, Qt.SmoothTransformation)
     return scaled

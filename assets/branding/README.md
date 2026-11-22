@@ -10,9 +10,21 @@ The header shows two institution marks, both optional:
 ## Current status
 
 Neither file is committed to this repository. When a file is absent the header
-draws a plainly bordered placeholder that states the expected path, and the
+draws a light placeholder — a hairline box on the card background with the
+words `LOGO NOT ADDED` in burgundy — that states the expected path, and the
 **Branding assets** row in the health panel reports `DEGRADED`. The dashboard
 never crashes and never substitutes an approximate mark.
+
+The placeholder is deliberately **light rather than dark**. A dark filled box
+next to the white PolyU header reads as a broken image, which is a worse
+impression than an honest "not added yet".
+
+## Aspect ratio
+
+Logos are scaled on **height only**, so width follows and a mark is never
+stretched. The header reserves its width from `logo_aspect()`, which measures
+the real file when present and falls back to `2.4` for the placeholder. That
+means dropping in a real logo cannot reflow the title.
 
 ## Adding a logo
 

@@ -545,15 +545,37 @@ class MainWindow(QMainWindow):
             self._tab_subtitle(theme.TAB_SUBTITLES[theme.TAB_ANALYTICS]), 0, 0, 1, 3
         )
 
-        self.metrics_panel = MetricsPanel()
-        grid.addWidget(self.metrics_panel, 1, 0)
+        # The evidence tab shows the same feed as LIVE OPERATIONS: an operator
+        # reviewing an incident should not have to switch tabs to confirm what
+        # the model saw. Both CameraPanels are independent widgets fed from the
+        # same frame callback.
+        evidence_columns = QVBoxLayout()
+        evidence_columns.setContentsMargins(0, 0, 0, 0)
+        evidence_columns.setSpacing(6)
+
+        self.evidence_camera = CameraPanel()
+        evidence_columns.addWidget(self.evidence_camera, 1)
+
+        evidence_caption = QLabel(
+            "Same frames as LIVE OPERATIONS, kept beside the evidence."
+        )
+        evidence_caption.setObjectName("CardCaption")
+        evidence_caption.setWordWrap(True)
+        evidence_columns.addWidget(evidence_caption)
+
+        evidence_host = QWidget()
+        evidence_host.setLayout(evidence_columns)
+        grid.addWidget(evidence_host, 1, 0, 2, 1)
 
         self.charts_panel = ChartsPanel()
-        grid.addWidget(self.charts_panel, 1, 1, 2, 2)
+        grid.addWidget(self.charts_panel, 1, 1, 1, 2)
+
+        self.metrics_panel = MetricsPanel()
+        grid.addWidget(self.metrics_panel, 2, 1, 1, 2)
 
         self.timeline = EventTimeline(title="Full event record")
         self.timeline.setMinimumHeight(230)
-        grid.addWidget(self.timeline, 2, 0)
+        grid.addWidget(self.timeline, 3, 0, 1, 3)
 
         diagnostics_card = QFrame()
         diagnostics_card.setObjectName("Card")
@@ -578,11 +600,14 @@ class MainWindow(QMainWindow):
         self.diagnostics_table.show_raw(True)
         diagnostics_layout.addWidget(self.diagnostics_table, 1)
 
-        grid.addWidget(diagnostics_card, 3, 0, 1, 3)
+        grid.addWidget(diagnostics_card, 4, 0, 1, 3)
 
-        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(0, 4)
         grid.setColumnStretch(1, 3)
         grid.setColumnStretch(2, 3)
+        grid.setRowStretch(1, 4)
+        grid.setRowStretch(2, 3)
+        grid.setRowStretch(3, 3)
 
         return page
 
@@ -780,6 +805,7 @@ class MainWindow(QMainWindow):
             self._push_banner()
 
         self.camera_panel.show_frame(frame)
+        self.evidence_camera.show_frame(frame)
 
         peak = max((box[1] for box in frame.detections), default=0.0)
 
@@ -1234,11 +1260,14 @@ class MainWindow(QMainWindow):
 
         status = self.lifecycle.status()
 
-        self.camera_panel.show_fixture(
-            driver.step_index,
-            observation=str(getattr(driver.current_observation, "value", "UNKNOWN")),
-            detections=1 if status.state is OperatorState.ALARM_LATCHED else 0,
-        )
+        for panel in (self.camera_panel, self.evidence_camera):
+            panel.show_fixture(
+                driver.step_index,
+                observation=str(
+                    getattr(driver.current_observation, "value", "UNKNOWN")
+                ),
+                detections=1 if status.state is OperatorState.ALARM_LATCHED else 0,
+            )
 
     def _health(self):
         return build_health_items(
