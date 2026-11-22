@@ -556,6 +556,190 @@ def read_serial_responses(
     return replies
 
 
+@dataclass
+class OutstandingCommand:
+    """A command we wrote and have not yet seen a reply for.
+
+    The board's protocol is strictly request/response, so there is at most one
+    of these at a time. Recording what we asked for is what makes it possible to
+    reject a reply that answers a different question.
+    """
+
+    command: str
+    expected_code: str
+    sent_at: float
+    incident_id: int | None = None
+
+    @property
+    def name(self) -> str:
+        return self.command.split()[0] if self.command else ""
+
+
+#: Command -> the reply code that actually answers it. A reply whose code is
+#: not listed here is never treated as a confirmation, which is the whole point
+#: of the table: ``OK HEARTBEAT`` cannot confirm an ``ACKNOWLEDGE``.
+#:
+#: The bare pin presets (``ALARM``, ``SAFE``, ``GREEN_ON``, ...) are absent on
+#: purpose. They are diagnostic-only on the firmware and are matched before the
+#: real parser, so sending one drives the pins without touching IncidentCore.
+#: That is precisely how a latched alarm went green again. Keeping them out of
+#: this table means the laptop cannot send one at all.
+EXPECTED_REPLY_CODES: dict[str, str] = {
+    "INCIDENT": "ALARM_LATCHED",
+    "NO_INCIDENT": "NO_INCIDENT",
+    "SILENCE": "SILENCED",
+    "ACKNOWLEDGE": "ACKNOWLEDGED",
+    "ACK": "ACKNOWLEDGED",
+    "RESET_READY": "RESET_READY",
+    "RESET": "RESET_ACCEPTED",
+    "HEARTBEAT": "HEARTBEAT",
+    "STATUS": "STATUS",
+}
+
+#: Commands that must not occupy the correlation slot: they are sent on a
+#: fixed period, so correlating them would keep the slot busy forever and
+#: starve the lifecycle commands that actually gate the lamp.
+FIRE_AND_FORGET = frozenset({"HEARTBEAT", "STATUS"})
+
+#: Lifecycle commands whose id-less spelling is either a different, weaker
+#: firmware command or an outright `ERR BAD_ARGUMENT`. Bare ``SILENCE`` and
+#: ``ACKNOWLEDGE`` are legacy aliases that skip the incident-id check, and the
+#: sketch lists ``INCIDENT``/``NO_INCIDENT`` as id-mandatory, so the laptop must
+#: always carry the id. Mirrors the sketch's ``needs_id`` list.
+_ID_SCOPED = frozenset(
+    {"INCIDENT", "NO_INCIDENT", "SILENCE", "ACKNOWLEDGE", "ACK", "RESET_READY"}
+)
+
+
+def expected_code_for(command: str) -> str | None:
+    """Map a command line to the reply code that proves it was executed.
+
+    Returns None for anything the laptop is not allowed to send, which includes
+    every bare pin preset.
+    """
+
+    parts = command.strip().split()
+    if not parts:
+        return None
+
+    name = parts[0].upper()
+
+    # The legacy id-less forms are not lifecycle commands. Only the id-carrying
+    # variants may go on the wire, so a request for the id captured here keeps
+    # SILENCE/ACKNOWLEDGE from being confused with the firmware aliases.
+    if name in _ID_SCOPED and len(parts) < 2:
+        return None
+
+    return EXPECTED_REPLY_CODES.get(name)
+
+
+def reply_matches(outstanding: OutstandingCommand, reply: SerialReply) -> bool:
+    """Decide whether ``reply`` answers ``outstanding`` and nothing else.
+
+    Both halves matter. The code must be the one this command produces, and for
+    an incident-scoped command the incident id in the firmware's ``STATUS``
+    line must still be the one we asked about.
+    """
+
+    if not reply.ok:
+        # A refusal is only an answer if it names the command we sent.
+        return reply.code.upper().startswith(outstanding.expected_code[:3]) or (
+            outstanding.name in reply.code.upper()
+        )
+
+    return reply.code.upper() == outstanding.expected_code
+
+
+class CommandCorrelator:
+    """Single-outstanding-command correlation for the ESP32 link.
+
+    Replaces the previous blind ``resolve_pending_command(reply)`` on every
+    line read. Three behaviours are deliberate:
+
+    1. Only one command is in flight. A second send while one is pending is
+       refused rather than queued, because the board answers in order and a
+       queue would let a stale reply be matched to the wrong command.
+    2. A timeout expires the slot instead of waiting forever. An unanswered
+       command is evidence of a broken link, so it degrades the link rather
+       than being silently forgotten.
+    3. Only a matching reply can complete the promise. Anything else is logged
+       as unmatched noise and changes nothing.
+    """
+
+    def __init__(self, timeout_seconds: float = 2.0) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.outstanding: OutstandingCommand | None = None
+        self.timed_out = 0
+        self.unmatched = 0
+        self.confirmed = 0
+        self.last_timeout_command: str | None = None
+
+    @property
+    def busy(self) -> bool:
+        return self.outstanding is not None
+
+    def send(
+        self,
+        connection: "serial.Serial | None",
+        command: str,
+        now: float,
+        incident_id: int | None = None,
+    ) -> bool:
+        """Write ``command`` and claim the correlation slot for it."""
+
+        if self.outstanding is not None:
+            return False
+
+        expected = expected_code_for(command)
+
+        if expected is None:
+            return False
+
+        if not send_serial_command(connection, command):
+            return False
+
+        self.outstanding = OutstandingCommand(
+            command=command.strip(),
+            expected_code=expected,
+            sent_at=now,
+            incident_id=incident_id,
+        )
+        return True
+
+    def match(self, reply: SerialReply) -> str:
+        """Consume ``reply`` if it answers the command in flight.
+
+        Returns ``MATCHED``, ``TIMEOUT``, ``IDLE`` or ``IGNORED``. ``IGNORED``
+        covers the heartbeat case that caused the false ACKNOWLEDGED report.
+        """
+
+        if self.outstanding is None:
+            return "IDLE"
+
+        if not reply_matches(self.outstanding, reply):
+            self.unmatched += 1
+            return "IGNORED"
+
+        self.outstanding = None
+        self.confirmed += 1
+        return "MATCHED"
+
+    def expire(self, now: float) -> str | None:
+        """Drop the slot if it has been waiting too long; return what expired."""
+
+        if self.outstanding is None:
+            return None
+
+        if now - self.outstanding.sent_at < self.timeout_seconds:
+            return None
+
+        expired = self.outstanding.command
+        self.last_timeout_command = expired
+        self.outstanding = None
+        self.timed_out += 1
+        return expired
+
+
 def format_timer_line(
     status: TemporalStatus,
     confirmation_seconds: float,
@@ -1533,6 +1717,10 @@ def main() -> int:
     heartbeat_period = 1.0
     last_heartbeat = 0.0
 
+    # One command in flight at a time. The board is request/response, so a
+    # reply can only be attributed to a command if exactly one is outstanding.
+    correlator = CommandCorrelator(timeout_seconds=2.0)
+
     trial_session = TrialSession()
     trial_session._candidate_confidence = args.candidate_confidence
     trial_session._goggles_confidence = args.goggles_confidence
@@ -1693,6 +1881,33 @@ def main() -> int:
 
             for reply in replies:
                 last_rx = reply.raw
+                print(f"[ESP32 RX] {reply.raw.strip()}")
+
+                incident_id = (
+                    lifecycle.incident.incident_id if lifecycle.incident else None
+                )
+
+                # Correlation first: a reply that does not answer the command
+                # in flight must not be allowed to change any state. This is
+                # what stops OK HEARTBEAT from confirming an ACKNOWLEDGE.
+                verdict = correlator.match(reply)
+
+                if verdict == "IGNORED":
+                    print(
+                        f"[CORRELATION] ignored {reply.raw.strip()!r} "
+                        f"(waiting for {correlator.outstanding.expected_code if correlator.outstanding else '-'})"
+                    )
+                    continue
+
+                if verdict == "IDLE":
+                    # Unsolicited line: useful on the overlay, never a state
+                    # change on its own.
+                    if reply.ok and reply.code == "ALARM_LATCHED":
+                        print(
+                            "[CORRELATION] unsolicited ALARM_LATCHED; "
+                            "firmware latched without us asking"
+                        )
+                    continue
 
                 if reply.ok and reply.code == "RESET_ACCEPTED":
                     # The firmware is the authority. resolve_pending_command
@@ -1705,16 +1920,37 @@ def main() -> int:
                         f"{reply.detail}".strip()
                     )
 
+                # A confirmed ACKNOWLEDGED is the only thing that may move the
+                # incident to acknowledged. The keypress alone never does.
+                if reply.ok and reply.code == "ACKNOWLEDGED":
+                    outcome = lifecycle.confirm_acknowledge(reply, now, incident_id)
+                    print(f"[CORRELATION] acknowledge {outcome} for incident {incident_id}")
+
                 # Finish or abandon the handshake this reply implies. A
                 # refused RESET re-asserts our steady state so the firmware
                 # cannot be left holding a stale token.
                 follow_up = lifecycle.resolve_pending_command(reply)
 
                 if follow_up is not None:
-                    if send_serial_command(serial_connection, follow_up):
+                    if correlator.send(serial_connection, follow_up, now, incident_id):
                         last_tx = follow_up
                     else:
                         serial_ok = False
+
+            expired = correlator.expire(now)
+
+            if expired is not None:
+                # No answer is not success. Drop the link so the laptop parks
+                # in FAULT instead of pretending the command landed.
+                print(f"[CORRELATION] TIMEOUT waiting for reply to {expired!r}")
+                serial_ok = False
+                lifecycle.set_health(
+                    camera_ok=ok,
+                    model_ok=True,
+                    serial_ok=False,
+                    now=now,
+                    reason=f"SERIAL TIMEOUT {expired}",
+                )
 
             lifecycle.set_health(
                 camera_ok=ok,
@@ -1730,6 +1966,11 @@ def main() -> int:
                 pending_since=temporal_filter.pending_since,
                 safe_since=temporal_filter.safe_since,
             )
+
+            # Log lifecycle state changes
+            if lc_status.state != previous_state:
+                print(f"[LIFECYCLE STATE] {previous_state} -> {lc_status.state}")
+                print(f"[LIFECYCLE STATUS] acknowledged={lc_status.acknowledged}, safe_recovered={lc_status.safe_recovered}, incident_id={lc_status.incident_id}")
 
             # Recovery is only proven by the detector itself. Recording it
             # here, rather than in the key handler, is what stops an operator
@@ -1749,6 +1990,8 @@ def main() -> int:
                 serial_connection is not None
                 and now - last_heartbeat >= heartbeat_period
             ):
+                # Heartbeats are fire-and-forget: they are sent on a fixed
+                # period, so they never claim the correlation slot.
                 if send_serial_command(serial_connection, "HEARTBEAT"):
                     last_heartbeat = now
                 else:
@@ -1757,11 +2000,29 @@ def main() -> int:
             command = lifecycle.take_pending_command()
 
             if command is not None:
-                if send_serial_command(serial_connection, command):
+                incident_id = (
+                    lifecycle.incident.incident_id if lifecycle.incident else None
+                )
+                print(f"[{time.time():.3f}] [LIFECYCLE TX] Sending command: {command}")
+
+                if correlator.send(serial_connection, command, now, incident_id):
                     last_tx = command
+                    print(
+                        f"[{time.time():.3f}] [LIFECYCLE TX] Command sent, "
+                        f"awaiting {correlator.outstanding.expected_code if correlator.outstanding else '-'}"
+                    )
+                elif correlator.busy:
+                    # One command in flight. Put it back rather than dropping
+                    # it: a lost INCIDENT command is a lost alarm.
+                    lifecycle.requeue_last_command()
+                    print(
+                        f"[{time.time():.3f}] [CORRELATION] busy waiting for "
+                        f"{correlator.outstanding.command!r}; will retry"
+                    )
                 else:
                     # A failed write is link loss, not a delivered command.
                     serial_ok = False
+                    print(f"[{time.time():.3f}] [LIFECYCLE TX] Command send FAILED")
                     lifecycle.set_health(
                         camera_ok=ok,
                         model_ok=True,
@@ -1805,9 +2066,14 @@ def main() -> int:
                 if key == ord("a"):
                     # Same call a future dashboard button will make. There is
                     # no second code path that can bypass the latch.
+                    #
+                    # This only *requests* the acknowledgement. It emits a
+                    # transition, and the normal drain below sends
+                    # ACKNOWLEDGE <id>. The incident stays unanswered in the UI
+                    # until the board's OK ACKNOWLEDGED is correlated back.
                     ok_ack, reason = lifecycle.acknowledge(now)
                     print(
-                        f"ACKNOWLEDGE: {reason}"
+                        f"ACKNOWLEDGE REQUESTED: {reason}"
                         if ok_ack
                         else f"ACKNOWLEDGE REJECTED: {reason}"
                     )
@@ -1822,7 +2088,12 @@ def main() -> int:
                     else:
                         token = lifecycle.pending_reset_command
 
-                        if send_serial_command(serial_connection, token):
+                        if correlator.send(
+                            serial_connection,
+                            token,
+                            now,
+                            lifecycle.incident.incident_id if lifecycle.incident else None,
+                        ):
                             last_tx = token
                             print(f"RESET HANDSHAKE STARTED: {token}")
                         else:

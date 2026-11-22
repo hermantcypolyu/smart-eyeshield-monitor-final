@@ -439,3 +439,206 @@ def test_rejected_commands_do_not_change_outputs(harness):
     alarm_flags = (flag_of(lines[0], "red"), flag_of(lines[0], "buzzer"))
     for line in lines[1:]:
         assert (flag_of(line, "red"), flag_of(line, "buzzer")) == alarm_flags
+
+
+# ---------------------------------------------------------------------------
+# The latched-alarm reversion, at the firmware core
+#
+# A real hardware log showed a latched alarm going green again about a second
+# after it latched, with no acknowledgement. The cause was not in this header:
+# it was the sketch matching ALARM/SAFE/SILENCE against its pin-preset table
+# *before* calling the parser below, so those words drove the pins and never
+# latched anything. These tests pin the core half of the contract, i.e. that
+# the incident-id commands really do hold the latch against every heartbeat.
+# ---------------------------------------------------------------------------
+
+
+def test_incident_latches_and_reports_the_id(harness):
+    lines = run(harness, ["INCIDENT 7"])
+    assert reply_for(lines[0]) == "OK INCIDENT"
+    assert state_of(lines[0]) == "ALARM_LATCHED"
+    assert "incident=7" in lines[0]
+
+
+def test_incident_without_an_id_is_refused(harness):
+    """The id is what makes a stale or crossed command refusable."""
+
+    lines = run(harness, ["INCIDENT"])
+    assert reply_for(lines[0]) == "ERR INCIDENT_REJECTED BAD_ARGUMENT"
+    assert state_of(lines[0]) == "SAFE"
+
+
+def test_heartbeat_cannot_clear_a_latch(harness):
+    """The exact regression: ten heartbeats after a latch must change nothing."""
+
+    lines = run(harness, ["INCIDENT 3"] + ["HEARTBEAT"] * 10)
+
+    for line in lines[1:]:
+        assert reply_for(line) == "OK HEARTBEAT", line
+        assert state_of(line) == "ALARM_LATCHED", line
+        assert flag_of(line, "red") is True, line
+        assert flag_of(line, "buzzer") is True, line
+        assert flag_of(line, "green") is False, line
+
+
+def test_incident_with_a_conflicting_id_is_refused(harness):
+    lines = run(harness, ["INCIDENT 4", "INCIDENT 5"])
+    assert reply_for(lines[1]) == "ERR INCIDENT_REJECTED ALREADY_OPEN"
+    assert state_of(lines[1]) == "ALARM_LATCHED"
+    assert flag_of(lines[1], "red") is True
+
+
+def test_incident_with_a_bad_argument_is_refused(harness):
+    lines = run(harness, ["INCIDENT 0"])
+    assert reply_for(lines[0]) == "ERR INCIDENT_REJECTED BAD_ARGUMENT"
+    assert state_of(lines[0]) == "SAFE"
+
+
+def test_acknowledge_carries_the_incident_id(harness):
+    lines = run(harness, ["INCIDENT 2", "ACKNOWLEDGE 2"])
+    assert reply_for(lines[1]) == "OK ACKNOWLEDGED"
+    assert state_of(lines[1]) == "ACKNOWLEDGED"
+    # Red stays on: acknowledging is not clearing.
+    assert flag_of(lines[1], "red") is True
+    assert flag_of(lines[1], "green") is False
+    assert flag_of(lines[1], "buzzer") is False
+
+
+def test_acknowledge_with_the_wrong_id_is_refused(harness):
+    lines = run(harness, ["INCIDENT 2", "ACKNOWLEDGE 9"])
+    assert reply_for(lines[1]) == "ERR INCIDENT_ID_MISMATCH"
+    assert state_of(lines[1]) == "ALARM_LATCHED"
+    assert flag_of(lines[1], "buzzer") is True
+
+
+def test_silence_carries_the_incident_id(harness):
+    lines = run(harness, ["INCIDENT 6", "SILENCE 6"])
+    assert reply_for(lines[1]) == "OK SILENCED"
+    assert state_of(lines[1]) == "SILENCED"
+    assert flag_of(lines[1], "red") is True
+    assert flag_of(lines[1], "buzzer") is False
+
+
+def test_silence_with_the_wrong_id_is_refused(harness):
+    lines = run(harness, ["INCIDENT 6", "SILENCE 1"])
+    assert reply_for(lines[1]) == "ERR INCIDENT_ID_MISMATCH"
+    assert state_of(lines[1]) == "ALARM_LATCHED"
+    assert flag_of(lines[1], "buzzer") is True
+
+
+def test_no_incident_never_clears_red(harness):
+    """Clearance is not a reset, so the lamp must stay red."""
+
+    lines = run(harness, ["INCIDENT 1", "ACKNOWLEDGE 1", "NO_INCIDENT 1"])
+    assert reply_for(lines[2]) == "OK NO_INCIDENT"
+    assert flag_of(lines[2], "red") is True
+    assert flag_of(lines[2], "green") is False
+
+
+def test_no_incident_is_refused_while_still_latched(harness):
+    lines = run(harness, ["INCIDENT 1", "NO_INCIDENT 1"])
+    assert reply_for(lines[1]) == "ERR NO_INCIDENT_REJECTED INCIDENT_STILL_OPEN"
+    assert flag_of(lines[1], "buzzer") is True
+    assert flag_of(lines[1], "green") is False
+
+
+def test_no_incident_with_a_mismatched_id_is_refused(harness):
+    lines = run(harness, ["INCIDENT 1", "ACKNOWLEDGE 1", "NO_INCIDENT 4"])
+    assert reply_for(lines[2]) == "ERR NO_INCIDENT_REJECTED ID_MISMATCH"
+
+
+def test_no_incident_with_nothing_open_is_refused(harness):
+    assert reply_for(run(harness, ["NO_INCIDENT 1"])[0]) == (
+        "ERR NO_INCIDENT_REJECTED NO_INCIDENT"
+    )
+
+
+def test_green_is_unreachable_while_an_incident_is_open(harness):
+    """Every green-producing command must be refused mid-incident."""
+
+    lines = run(
+        harness,
+        ["INCIDENT 1", "SAFE", "ALL_OFF", "NO_INCIDENT 0", "ACKNOWLEDGE", "RESET"],
+    )
+
+    for line in lines[1:]:
+        assert flag_of(line, "green") is False, line
+
+    assert reply_for(lines[1]) == "ERR SAFE_REJECTED INCIDENT_ACTIVE"
+    assert reply_for(lines[2]) == "ERR ALL_OFF_DIAGNOSTIC_ONLY INCIDENT_ACTIVE"
+    # No id, still latched: the core refuses rather than guessing the episode.
+    assert reply_for(lines[3]) == "ERR NO_INCIDENT_REJECTED INCIDENT_STILL_OPEN"
+
+
+def test_reset_needs_acknowledgement_and_recovery(harness):
+    lines = run(harness, ["INCIDENT 1", "RESET", "ACKNOWLEDGE 1", "RESET"])
+    assert reply_for(lines[1]) == "ERR RESET_REJECTED NOT_ACKNOWLEDGED"
+    assert reply_for(lines[3]) == "ERR RESET_REJECTED NOT_SAFE_RECOVERED"
+    assert flag_of(lines[3], "red") is True
+    assert flag_of(lines[3], "green") is False
+
+
+def test_reset_with_an_unknown_incident_is_refused(harness):
+    assert reply_for(run(harness, ["RESET"])[0]) == "ERR RESET_REJECTED NO_INCIDENT"
+
+
+def test_reset_is_refused_without_a_live_link(harness):
+    """A dead link is a real blocker: the operator cannot be told it is safe."""
+
+    lines = run(harness, ["INCIDENT 1", "ACKNOWLEDGE 1", "RESET_READY 1", "RESET"])
+    assert reply_for(lines[2]) == "OK RESET_READY"
+    assert reply_for(lines[3]) == "ERR RESET_REJECTED LINK_OR_HEALTH_INVALID"
+    assert flag_of(lines[3], "red") is True
+    assert flag_of(lines[3], "green") is False
+
+
+def test_reset_accepted_only_after_the_ready_token(harness):
+    lines = run(
+        harness,
+        ["HEARTBEAT", "INCIDENT 1", "ACKNOWLEDGE 1", "RESET_READY 1", "RESET"],
+    )
+    assert reply_for(lines[3]) == "OK RESET_READY"
+    assert reply_for(lines[4]) == "OK RESET_ACCEPTED"
+    # Only an accepted reset earns green.
+    assert flag_of(lines[4], "green") is True
+    assert flag_of(lines[4], "red") is False
+    assert flag_of(lines[4], "buzzer") is False
+
+
+def test_reset_ready_with_a_stale_id_is_refused(harness):
+    lines = run(harness, ["INCIDENT 1", "ACKNOWLEDGE 1", "RESET_READY 9"])
+    assert reply_for(lines[2]) == "ERR RESET_REJECTED NOT_SAFE_RECOVERED"
+    assert state_of(lines[2]) == "ACKNOWLEDGED"
+
+
+def test_status_line_is_machine_readable(harness):
+    status = run(harness, ["INCIDENT 5", "ACKNOWLEDGE 5", "@STATUS"])[-1]
+
+    for field in (
+        "STATE=",
+        "INCIDENT=",
+        "ACK=",
+        "RESET_READY=",
+        "REARM=",
+        "GREEN=",
+        "RED=",
+        "BUZZER=",
+        "LINK=",
+    ):
+        assert field in status, f"{field} missing from {status!r}"
+
+    assert "INCIDENT=5" in status
+    assert "ACK=1" in status
+    assert "GREEN=0" in status
+    assert "RED=1" in status
+    assert "BUZZER=0" in status
+
+
+def test_a_rearmed_incident_rings_again(harness):
+    """A second INCIDENT for the same episode must re-arm the buzzer."""
+
+    lines = run(harness, ["INCIDENT 1", "ACKNOWLEDGE 1", "INCIDENT 1"])
+    assert reply_for(lines[2]) == "OK INCIDENT"
+    assert flag_of(lines[2], "buzzer") is True
+    assert flag_of(lines[2], "red") is True
+    assert flag_of(lines[2], "green") is False

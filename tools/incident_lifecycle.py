@@ -119,6 +119,7 @@ class Event(str, Enum):
     SAFE_CLEAR_CANCELLED = "SAFE_CLEAR_CANCELLED"
     SAFE_RECOVERED = "SAFE_RECOVERED"
     ACKNOWLEDGED = "ACKNOWLEDGED"
+    ACKNOWLEDGE_REQUESTED = "ACKNOWLEDGE_REQUESTED"
     ACKNOWLEDGE_REJECTED = "ACKNOWLEDGE_REJECTED"
     RESET_ACCEPTED = "RESET_ACCEPTED"
     RESET_REJECTED = "RESET_REJECTED"
@@ -202,7 +203,12 @@ class Transition:
 @dataclass
 class _Incident:
     incident_id: int
+    #: True only once the firmware has actually answered ``OK ACKNOWLEDGED``
+    #: for this incident id. A keypress sets ``acknowledge_pending`` instead:
+    #: the laptop never gets to decide on its own that a human was seen.
     acknowledged: bool = False
+    #: An ACKNOWLEDGE <id> was sent and its reply has not arrived yet.
+    acknowledge_pending: bool = False
     safe_recovered: bool = False
 
 
@@ -509,6 +515,7 @@ class IncidentLifecycle:
             # the episode is still open, so the drone must come back.
             if self.incident.safe_recovered or self.incident.acknowledged:
                 self.incident.acknowledged = False
+                self.incident.acknowledge_pending = False
                 self.incident.safe_recovered = False
                 self.rearm_count += 1
                 self.safe_since = None
@@ -556,7 +563,19 @@ class IncidentLifecycle:
     # -- operator operations ---------------------------------------------
 
     def acknowledge(self, now: float) -> tuple[bool, str]:
-        """A human confirmed they saw the incident. Silences the buzzer only."""
+        """Record that a human says they saw the incident.
+
+        This does *not* mark the incident acknowledged. The laptop is not the
+        authority on whether an alarm was answered: the board is. The keypress
+        queues ``ACKNOWLEDGE <id>`` and the incident only becomes acknowledged
+        when the matching ``OK ACKNOWLEDGED`` reply arrives at
+        :meth:`confirm_acknowledge`.
+
+        Treating the local keypress as sufficient was the second defect: the
+        demo promoted itself to ACKNOWLEDGED on any reply it happened to read,
+        including ``OK HEARTBEAT``, so the overlay could claim an alarm had been
+        answered while the board was still buzzing.
+        """
 
         if self.incident is None:
             self._emit(Event.ACKNOWLEDGE_REJECTED, now, self.state, "NO_INCIDENT")
@@ -565,15 +584,70 @@ class IncidentLifecycle:
         if self.incident.acknowledged:
             return True, "ALREADY_ACKNOWLEDGED"
 
-        self.incident.acknowledged = True
+        if self.incident.acknowledge_pending:
+            return True, "ACKNOWLEDGE_PENDING"
 
-        # Order independence: whether the human acknowledged first or the
-        # goggles came back first, both routes end in ACKNOWLEDGED.
-        if self.state is not OperatorState.ACKNOWLEDGED:
-            self._emit(Event.ACKNOWLEDGED, now, OperatorState.ACKNOWLEDGED)
+        self.incident.acknowledge_pending = True
+
+        # A *request*, not the acknowledgement. The state does not move and the
+        # incident stays unanswered until the board says otherwise. The event is
+        # logged so the command for the request can be drained exactly once.
+        self._emit(
+            Event.ACKNOWLEDGE_REQUESTED,
+            now,
+            self.state,
+            f"incident {self.incident.incident_id}",
+        )
 
         # Red stays on. This is the difference between acknowledge and reset.
         return True, "OK"
+
+    def confirm_acknowledge(
+        self,
+        reply: object,
+        now: float,
+        expected_incident_id: int | None = None,
+    ) -> str:
+        """Apply the firmware's answer to a pending ``ACKNOWLEDGE <id>``.
+
+        Returns one of ``CONFIRMED``, ``REJECTED``, ``IGNORED`` or
+        ``NO_PENDING_ACK``. ``IGNORED`` is the important one: a reply that is
+        not an acknowledgement answer must leave the laptop exactly where it
+        was. That is what stops ``OK HEARTBEAT`` from ever confirming anything.
+        """
+
+        if self.incident is None or not self.incident.acknowledge_pending:
+            return "NO_PENDING_ACK"
+
+        if expected_incident_id is not None and (
+            expected_incident_id != self.incident.incident_id
+        ):
+            # A late answer for a previous episode must not close this one.
+            return "IGNORED"
+
+        ok = bool(getattr(reply, "ok", False))
+        code = str(getattr(reply, "code", "")).upper()
+
+        if not ok:
+            if not code.startswith("ACK"):
+                return "IGNORED"
+            self.incident.acknowledge_pending = False
+            self._emit(
+                Event.ACKNOWLEDGE_REJECTED,
+                now,
+                self.state,
+                str(getattr(reply, "detail", "")) or code or "REJECTED",
+            )
+            return "REJECTED"
+
+        if code != "ACKNOWLEDGED":
+            return "IGNORED"
+
+        self.incident.acknowledge_pending = False
+        self.incident.acknowledged = True
+        if self.state is not OperatorState.ACKNOWLEDGED:
+            self._emit(Event.ACKNOWLEDGED, now, OperatorState.ACKNOWLEDGED)
+        return "CONFIRMED"
 
     def mark_onboard_verified(self) -> int | None:
         """Record that the detector itself proved recovery for this incident.
@@ -649,15 +723,29 @@ class IncidentLifecycle:
         One command per transition keeps the link traffic proportional to what
         actually happened, and it means a dropped frame cannot cause a command
         storm. ``None`` means the transition is display-only.
+
+        Every command is a lifecycle command carrying the incident id.
+        ``ALARM``/``SAFE``/``SILENCE`` are deliberately absent: they are pin
+        presets on the firmware that bypass IncidentCore, which is exactly the
+        defect that let a latched alarm go quiet a second later.
         """
 
-        mapping = {
-            Event.ALARM_LATCHED: "ALARM",
-            Event.ALARM_REARMED: "ALARM",
-            Event.ACKNOWLEDGED: "ACKNOWLEDGE",
-            Event.RESET_ACCEPTED: "RESET",
-        }
-        return mapping.get(transition.event)
+        if transition.event in (Event.ALARM_LATCHED, Event.ALARM_REARMED):
+            if transition.incident_id is not None:
+                return f"INCIDENT {transition.incident_id}"
+            return None
+
+        if transition.event == Event.ACKNOWLEDGE_REQUESTED:
+            # The request is what goes on the wire. ACKNOWLEDGED itself is
+            # display-only: it is the board's answer, not a command.
+            if transition.incident_id is not None:
+                return f"ACKNOWLEDGE {transition.incident_id}"
+            return None
+
+        if transition.event == Event.RESET_ACCEPTED:
+            return "RESET"
+
+        return None
 
     # -- reset handshake -------------------------------------------------
 
@@ -713,15 +801,26 @@ class IncidentLifecycle:
         if ok and code == "RESET_ACCEPTED":
             self.pending_reset_command = None
             self._advance_after_firmware_reset()
-            return self.serial_state
+            return self._steady_state_command()
 
         if not ok and "RESET" in code:
             # Clear the token so the next attempt is judged on its own merits,
             # and re-assert our current state so the two ends cannot drift.
             self.pending_reset_command = None
-            return self.serial_state
+            return self._steady_state_command()
 
         return None
+
+    def _steady_state_command(self) -> str | None:
+        """Re-assert our state, or nothing at all when no command can say it.
+
+        ``WAITING`` and ``FAULT`` are laptop-side descriptions, not firmware
+        commands, so they must never reach the wire. Sending them would earn an
+        ``ERR UNKNOWN_COMMAND`` and burn the correlation slot.
+        """
+
+        state = self.serial_state
+        return None if state in ("WAITING", "FAULT") else state
 
     def _advance_after_firmware_reset(self) -> None:
         """Mirror the firmware's accepted reset into the local state machine."""
@@ -759,16 +858,46 @@ class IncidentLifecycle:
 
         return None
 
+    def requeue_last_command(self) -> None:
+        """Put the last drained command back so it is retried.
+
+        Used when the serial link is mid-handshake and cannot accept a second
+        command. Dropping the command would mean dropping an alarm, so it is
+        re-queued instead.
+        """
+
+        if self._next_command_index > 0:
+            self._next_command_index -= 1
+
     @property
     def serial_state(self) -> str:
-        """The steady-state command the firmware should be in for our state."""
+        """The steady-state lifecycle command the firmware should be in.
+
+        Every incident value here is a lifecycle command carrying the incident
+        id, never a bare pin preset. ``ALARM``/``SAFE``/``SILENCE`` used to be
+        returned here and they were exactly the diagnostic presets on the
+        sketch side, so the laptop was itself driving the code path that
+        bypassed IncidentCore and let the green lamp come back on by itself.
+
+        ``WAITING`` is a sentinel: nothing is open, so there is no command to
+        re-assert and the caller must send nothing.
+        """
+
+        incident_id = self.incident.incident_id if self.incident else None
 
         if self.state is OperatorState.FAULT:
+            # No command can assert FAULT; the board raises it from link loss.
             return "FAULT"
+
+        if incident_id is None:
+            return "WAITING"
+
         if self.state is OperatorState.ALARM_LATCHED:
-            return "ALARM"
+            return f"INCIDENT {incident_id}"
+
         if self.state in INCIDENT_STATES:
-            return "ACKNOWLEDGE" if self.incident and self.incident.acknowledged else "SILENCE"
-        if self.state is OperatorState.SAFE:
-            return "SAFE"
+            if self.incident and self.incident.acknowledged:
+                return f"ACKNOWLEDGE {incident_id}"
+            return f"SILENCE {incident_id}"
+
         return "WAITING"

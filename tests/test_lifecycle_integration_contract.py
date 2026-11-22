@@ -23,6 +23,7 @@ from tools.incident_lifecycle import (
     OperatorState,
     ResetBlocker,
 )
+from tools.live_eye_shield_demo import SerialReply
 
 DEMO = Path(__file__).resolve().parents[1] / "tools" / "live_eye_shield_demo.py"
 
@@ -88,7 +89,15 @@ def test_video_loop_sequence_reaches_reset():
 
     ok, _ = lc.acknowledge(2.1)
     assert ok
-
+    # The keypress only queues ACKNOWLEDGE <id>; the board must answer before
+    # the incident counts as answered.
+    assert lc.reset_blocker() is ResetBlocker.NOT_ACKNOWLEDGED
+    confirmed = lc.confirm_acknowledge(
+        SerialReply(raw="OK ACKNOWLEDGED", ok=True, code="ACKNOWLEDGED"),
+        2.2,
+        incident_id,
+    )
+    assert confirmed == "CONFIRMED"
     _feed(lc, SAFE, 2.5)
     _feed(lc, SAFE, 3.5)
     status = lc.update(SAFE, 4.5)

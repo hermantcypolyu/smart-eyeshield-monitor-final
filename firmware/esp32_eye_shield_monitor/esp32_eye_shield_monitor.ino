@@ -358,14 +358,20 @@ static void printStatus() {
   Serial.print(F("uptime_ms       : "));
   Serial.println(millis());
   Serial.println(F("----------------------------------------"));
+
+  /* Machine-readable line last, so a laptop parser can find exactly one
+   * authoritative record of the board's own view without scraping the
+   * human-readable block above. The laptop drives its physical state from
+   * this, never from its own optimistic guess. */
+  char status_line[160];
+  g_core.formatStatus(status_line, sizeof(status_line), millis());
+  Serial.print(F("STATUS "));
+  Serial.println(status_line);
 }
 
 static void printHelp() {
   Serial.println(F("--------------------------------------------------------------"));
   Serial.println(F("Commands (Serial Monitor, line ending Newline or CRLF):"));
-  Serial.println(F("  SAFE        output preset: green on,  red off, buzzer off"));
-  Serial.println(F("  ALARM       output preset: green off, red on,  buzzer on"));
-  Serial.println(F("  SILENCE     output preset: green off, red on,  buzzer off"));
   Serial.println(F("  GREEN_ON    green on,  red off (mutually exclusive)"));
   Serial.println(F("  GREEN_OFF   green off, red unchanged"));
   Serial.println(F("  RED_ON      red on,    green off (mutually exclusive)"));
@@ -378,10 +384,12 @@ static void printHelp() {
   Serial.println(F("  STATUS      pins, polarity, buzzer mode, state, uptime"));
   Serial.println(F("  HELP        this list"));
   Serial.println(F("--------------------------------------------------------------"));
+  Serial.println(F("Pin presets are refused while an incident is open."));
   Serial.println(F("Incident lifecycle (driven by the laptop):"));
   Serial.println(F("  HEARTBEAT              proves the link is alive"));
-  Serial.println(F("  NO_INCIDENT <id>       clear: no incident is in progress"));
+  Serial.println(F("  NO_INCIDENT <id>       clear verdict; never clears red"));
   Serial.println(F("  INCIDENT <id>          violate: latch the alarm"));
+  Serial.println(F("  SILENCE <id>           buzzer off, red stays on"));
   Serial.println(F("  ACKNOWLEDGE <id>       operator has seen the alarm"));
   Serial.println(F("  RESET_READY <id>       laptop asserts recovery is proven"));
   Serial.println(F("  RESET                  clear, only after RESET_READY <id>"));
@@ -394,19 +402,18 @@ static void printHelp() {
  *
  * Two kinds of command arrive on the same line protocol:
  *
- *   - output presets (SAFE / ALARM / GREEN_ON / ...), which write the pins
- *     directly and exist for bring-up and for the SELF_TEST path;
- *   - incident-lifecycle commands (NO_INCIDENT / INCIDENT / ACKNOWLEDGE /
- *     RESET_READY / RESET / HEARTBEAT), which are delegated to IncidentCore.
+ *   - bare pin presets (GREEN_ON / RED_ON / BUZZER_OFF / ALL_OFF / ...), which
+ *     write the pins directly and exist only for bring-up and SELF_TEST;
+ *   - incident-lifecycle commands (SAFE / ALARM / SILENCE / NO_INCIDENT /
+ *     INCIDENT / ACKNOWLEDGE / RESET_READY / RESET / HEARTBEAT), which are
+ *     delegated to IncidentCore.
  *
  * Only the core may clear a latched alarm, and it only does so through the
- * ACKNOWLEDGE -> RESET_READY -> RESET handshake. A preset can force the pins but
- * deliberately reports that it overrode the lifecycle, so an operator watching
- * the log can tell the difference between "the system cleared this" and "a human
- * typed a preset".
+ * ACKNOWLEDGE -> RESET_READY -> RESET handshake. No preset can paint over an
+ * open incident: every one of them is refused while incident_active().
  * =========================================================================== */
 
-/* Output presets. Kept identical to the verified Phase 2A behaviour so the
+/* Pin presets. Kept identical to the verified Phase 2A behaviour so the
  * bring-up procedure in docs/hardware_bringup.md still applies unchanged. */
 struct PresetEntry {
   const char *name;
@@ -414,9 +421,6 @@ struct PresetEntry {
   void (*handler)();
 };
 
-static void cmdSafe()     { applyOutputs(true,  false, false); }
-static void cmdAlarm()    { applyOutputs(false, true,  true);  }
-static void cmdSilence()  { applyOutputs(false, true,  false); }
 static void cmdGreenOn()  { applyOutputs(true,  false, g_buzzer_on); }
 static void cmdGreenOff() { setGreen(false); }
 static void cmdRedOn()    { applyOutputs(false, true,  g_buzzer_on); }
@@ -425,10 +429,19 @@ static void cmdBuzzerOn() { setBuzzer(true);  }
 static void cmdBuzzerOff(){ setBuzzer(false); }
 static void cmdAllOff()   { allOutputsOff();  }
 
+/* SAFE, ALARM and SILENCE are deliberately NOT presets.
+ *
+ * They used to be, and that was the safety defect: the preset table was
+ * consulted before the lifecycle parser, so "ALARM" drove green=off/red=on/
+ * buzzer=on on the pins while IncidentCore stayed in FwState::Safe with
+ * incident_id=0. Nothing was latched, so the next HEARTBEAT re-applied
+ * outputs() computed from Safe and turned the green lamp back on about a
+ * second later - with no acknowledgement and no reset.
+ *
+ * Those three commands now reach IncidentCore, which is the only component
+ * allowed to decide what the lamps do. What remains here is bare pin control
+ * for bring-up and the SELF_TEST sequence. */
 static const PresetEntry PRESETS[] = {
-  { "SAFE",       "OK SAFE",       cmdSafe      },
-  { "ALARM",      "OK ALARM",      cmdAlarm     },
-  { "SILENCE",    "OK SILENCE",    cmdSilence   },
   { "GREEN_ON",   "OK GREEN_ON",   cmdGreenOn   },
   { "GREEN_OFF",  "OK GREEN_OFF",  cmdGreenOff  },
   { "RED_ON",     "OK RED_ON",     cmdRedOn     },
@@ -489,19 +502,25 @@ static void handleCommand(String raw) {
     return;
   }
 
+  /* A pin preset is a bring-up tool, not a lifecycle transition. Once an
+   * incident is open the core owns the lamps, so every preset is refused
+   * rather than allowed to paint over a latched alarm. */
+  if (g_core.incident_active()) {
+    const uint8_t blocked = findPreset(raw);
+    if (blocked != PRESET_NOT_FOUND) {
+      Serial.print(reply::kErrPresetIncidentActive);
+      Serial.print(' ');
+      Serial.println(PRESETS[blocked].name);
+      return;
+    }
+  }
+
   const uint8_t preset = findPreset(raw);
   if (preset != PRESET_NOT_FOUND) {
     stopSelfTest(F("manual command"));
     PRESETS[preset].handler();
 
     Serial.println(PRESETS[preset].reply);
-
-    /* A preset is a diagnostic override, not a lifecycle transition. Say so, so
-     * the log cannot be mistaken for an accepted RESET. */
-    if (g_core.incident_active()) {
-      Serial.print(F("WARN PRESET_OVERRIDE state="));
-      Serial.println(fwStateName(g_core.state()));
-    }
     return;
   }
 
@@ -517,11 +536,11 @@ static void handleCommand(String raw) {
   /* Numeric arguments are mandatory for the id-carrying commands and must parse
    * cleanly; "INCIDENT abc" must not silently latch incident 0. */
   const bool needs_id =
-      parsed.command == FwCommand::Alarm ||
-      parsed.command == FwCommand::Silence ||
-      parsed.command == FwCommand::Acknowledge ||
-      parsed.command == FwCommand::ResetReady ||
-      parsed.command == FwCommand::Safe;
+      parsed.command == FwCommand::Incidents ||      // INCIDENT <id>
+      parsed.command == FwCommand::NoIncident ||     // NO_INCIDENT <id>
+      parsed.command == FwCommand::AckIncident ||    // ACKNOWLEDGE <id>
+      parsed.command == FwCommand::SilenceIncident ||// SILENCE <id>
+      parsed.command == FwCommand::ResetReady;       // RESET_READY <id>
 
   if (needs_id && !parsed.argument_valid) {
     Serial.print(F("ERR BAD_ARGUMENT "));

@@ -9,6 +9,7 @@
 //   @TICK <ms>       set the injected millisecond clock
 //   @YELLOW <0|1>    tell the core whether a verified yellow pin exists
 //   @STATE           print state and desired outputs, no command
+//   @STATUS          print the core's machine-readable status line
 //   @QUIT            stop reading
 
 #include "incident_core.h"
@@ -53,6 +54,14 @@ int main() {
                   IncidentCore::stateName(core.state()), core.incident_id(),
                   core.acknowledged() ? 1 : 0, out.green ? 1 : 0,
                   out.red ? 1 : 0, out.buzzer ? 1 : 0);
+      fflush(stdout);
+      continue;
+    }
+
+    if (strcmp(line, "@STATUS") == 0) {
+      char status_line[192];
+      core.formatStatus(status_line, sizeof(status_line), (uint32_t)now_ms);
+      printf("STATUS %s\n", status_line);
       fflush(stdout);
       continue;
     }

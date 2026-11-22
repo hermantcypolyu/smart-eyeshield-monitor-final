@@ -78,6 +78,10 @@ enum class FwState : uint8_t {
 
 enum class FwCommand : uint8_t {
   None = 0,
+  Incidents,
+  NoIncident,
+  AckIncident,
+  SilenceIncident,
   Safe,
   Alarm,
   Silence,
@@ -97,6 +101,10 @@ enum class FwCommand : uint8_t {
 /* Recognised command names, in FwCommand order starting at Safe. */
 inline const char *fwCommandName(FwCommand command) {
   switch (command) {
+    case FwCommand::Incidents: return "INCIDENT";
+    case FwCommand::NoIncident: return "NO_INCIDENT";
+    case FwCommand::AckIncident: return "ACKNOWLEDGE";
+    case FwCommand::SilenceIncident: return "SILENCE";
     case FwCommand::Safe: return "SAFE";
     case FwCommand::Alarm: return "ALARM";
     case FwCommand::Silence: return "SILENCE";
@@ -195,10 +203,18 @@ inline ParsedCommand parseFwCommand(const char *raw, size_t length) {
   } else if (strcmp(token, "ALARM") == 0) {
     parsed.command = FwCommand::Alarm;
   } else if (strcmp(token, "SILENCE") == 0) {
-    parsed.command = FwCommand::Silence;
+    /* "SILENCE <id>" is a lifecycle command; bare "SILENCE" stays as the
+     * original bring-up form so existing harness scripts keep working. */
+    parsed.command = has_argument ? FwCommand::SilenceIncident
+                                  : FwCommand::Silence;
+  } else if (strcmp(token, "INCIDENT") == 0) {
+    parsed.command = FwCommand::Incidents;
+  } else if (strcmp(token, "NO_INCIDENT") == 0) {
+    parsed.command = FwCommand::NoIncident;
   } else if (strcmp(token, "ACKNOWLEDGE") == 0 ||
              strcmp(token, "ACK") == 0) {
-    parsed.command = FwCommand::Acknowledge;
+    parsed.command = has_argument ? FwCommand::AckIncident
+                                  : FwCommand::Acknowledge;
   } else if (strcmp(token, "RESET") == 0) {
     parsed.command = FwCommand::Reset;
   } else if (strcmp(token, "RESET_READY") == 0) {
@@ -247,6 +263,8 @@ struct CoreOutputs {
 namespace reply {
 
 inline constexpr const char *kOkSafe = "OK SAFE";
+inline constexpr const char *kOkIncident = "OK INCIDENT";
+inline constexpr const char *kOkNoIncident = "OK NO_INCIDENT";
 inline constexpr const char *kOkAlarm = "OK ALARM_LATCHED";
 inline constexpr const char *kOkSilenced = "OK SILENCED";
 inline constexpr const char *kOkAcknowledged = "OK ACKNOWLEDGED";
@@ -275,12 +293,26 @@ inline constexpr const char *kErrResetReadyNotAcknowledged =
     "ERR RESET_READY_REJECTED NOT_ACKNOWLEDGED";
 inline constexpr const char *kErrAllOffIncidentActive =
     "ERR ALL_OFF_DIAGNOSTIC_ONLY INCIDENT_ACTIVE";
+inline constexpr const char *kErrPresetIncidentActive =
+    "ERR PRESET_DIAGNOSTIC_ONLY INCIDENT_ACTIVE";
 inline constexpr const char *kOkYellowOff = "OK YELLOW_OFF";
 inline constexpr const char *kOkYellowSteady = "OK YELLOW_STEADY";
 inline constexpr const char *kOkYellowSlowBlink = "OK YELLOW_SLOW_BLINK";
 inline constexpr const char *kOkYellowFastBlink = "OK YELLOW_FAST_BLINK";
 inline constexpr const char *kErrYellowDisabled = "ERR YELLOW_DISABLED";
 inline constexpr const char *kErrUnknownCommand = "ERR UNKNOWN_COMMAND";
+inline constexpr const char *kErrIncidentBadArgument =
+    "ERR INCIDENT_REJECTED BAD_ARGUMENT";
+inline constexpr const char *kErrIncidentAlreadyOpen =
+    "ERR INCIDENT_REJECTED ALREADY_OPEN";
+inline constexpr const char *kErrNoIncidentNothingToClose =
+    "ERR NO_INCIDENT_REJECTED NO_INCIDENT";
+inline constexpr const char *kErrNoIncidentIdMismatch =
+    "ERR NO_INCIDENT_REJECTED ID_MISMATCH";
+inline constexpr const char *kErrNoIncidentStillOpen =
+    "ERR NO_INCIDENT_REJECTED INCIDENT_STILL_OPEN";
+inline constexpr const char *kErrIncidentIdMismatch =
+    "ERR INCIDENT_ID_MISMATCH";
 
 }  // namespace reply
 
@@ -420,6 +452,87 @@ class IncidentCore {
         return reply::kOkAlarm;
       }
 
+      /* -----------------------------------------------------------------
+       * Production lifecycle vocabulary.
+       *
+       * The laptop speaks only these. They carry the incident id so a stale
+       * or mismatched token can be refused instead of applied to the wrong
+       * episode.
+       * -------------------------------------------------------------- */
+
+      case FwCommand::Incidents: {
+        if (!parsed.argument_valid || parsed.argument <= 0) {
+          return reply::kErrIncidentBadArgument;
+        }
+        if (incident_active() && incident_id_ != parsed.argument) {
+          /* An incident is already latched under a different id. Applying
+           * this one would silently adopt the wrong episode. */
+          return reply::kErrIncidentAlreadyOpen;
+        }
+        if (!incident_active()) {
+          incident_id_ = parsed.argument;
+          if (next_incident_id_ <= parsed.argument) {
+            next_incident_id_ = parsed.argument + 1;
+          }
+          acknowledged_ = false;
+          reset_ready_incident_ = 0;
+          state_ = FwState::AlarmLatched;
+        } else if (state_ == FwState::Silenced ||
+                   state_ == FwState::Acknowledged ||
+                   state_ == FwState::ReadyToReset) {
+          /* Renewed violation inside the same open episode: re-arm the
+           * audible warning, keep the id, keep the episode open. */
+          acknowledged_ = false;
+          reset_ready_incident_ = 0;
+          state_ = FwState::AlarmLatched;
+          ++rearm_count_;
+        }
+        if (outputs != nullptr) *outputs = this->outputs();
+        return reply::kOkIncident;
+      }
+
+      case FwCommand::NoIncident: {
+        /* The laptop's clearance verdict for a known episode. This is NOT a
+         * reset: it never clears red and never closes the incident. It exists
+         * so the firmware can refuse a clearance that arrives while the id is
+         * still wrong, and so the laptop has a real reply to correlate. */
+        if (!incident_active()) return reply::kErrNoIncidentNothingToClose;
+        if (parsed.argument_valid && parsed.argument > 0 &&
+            parsed.argument != incident_id_) {
+          return reply::kErrNoIncidentIdMismatch;
+        }
+        /* While latched the incident is still open, so a bare clearance may
+         * not silence anything. Report it so the laptop can see the mismatch
+         * between its own verdict and the board's latch. */
+        if (!acknowledged_) return reply::kErrNoIncidentStillOpen;
+        if (outputs != nullptr) *outputs = this->outputs();
+        return reply::kOkNoIncident;
+      }
+
+      case FwCommand::SilenceIncident:
+        if (!incident_active()) return reply::kErrSilenceNoIncident;
+        if (parsed.argument_valid && parsed.argument > 0 &&
+            parsed.argument != incident_id_) {
+          return reply::kErrIncidentIdMismatch;
+        }
+        if (state_ == FwState::AlarmLatched) state_ = FwState::Silenced;
+        if (outputs != nullptr) *outputs = this->outputs();
+        return reply::kOkSilenced;
+
+      case FwCommand::AckIncident:
+        if (!incident_active()) return reply::kErrAckNoIncident;
+        if (parsed.argument_valid && parsed.argument > 0 &&
+            parsed.argument != incident_id_) {
+          return reply::kErrIncidentIdMismatch;
+        }
+        acknowledged_ = true;
+        if (state_ == FwState::AlarmLatched || state_ == FwState::Silenced ||
+            state_ == FwState::ReadyToReset) {
+          state_ = FwState::Acknowledged;
+        }
+        if (outputs != nullptr) *outputs = this->outputs();
+        return reply::kOkAcknowledged;
+
       case FwCommand::Silence:
         if (!incident_active()) return reply::kErrSilenceNoIncident;
         if (state_ == FwState::AlarmLatched) state_ = FwState::Silenced;
@@ -428,8 +541,6 @@ class IncidentCore {
 
       case FwCommand::Acknowledge:
         if (!incident_active()) return reply::kErrAckNoIncident;
-        /* Acknowledge records review and silences the buzzer, but never
-         * touches the red lamp and never closes the incident. */
         acknowledged_ = true;
         if (state_ == FwState::AlarmLatched || state_ == FwState::Silenced) {
           state_ = FwState::Acknowledged;

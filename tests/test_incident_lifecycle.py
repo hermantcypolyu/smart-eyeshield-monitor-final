@@ -41,6 +41,10 @@ UNKNOWN = Obs("UNKNOWN")
 SAFE = Obs("SAFE")
 VIOLATION = Obs("VIOLATION")
 
+#: The bare pin presets. None of these may ever be emitted for an incident:
+#: they are diagnostic-only on the firmware and bypass IncidentCore entirely.
+BARE_PRESETS = {"SAFE", "ALARM", "SILENCE", "GREEN_ON", "GREEN_OFF", "RED_ON", "RED_OFF"}
+
 
 def make_lifecycle(
     confirmation_seconds: float = 2.0,
@@ -86,11 +90,26 @@ def recover(lc: IncidentLifecycle, start: float) -> float:
     return start + 2.5
 
 
+def ack(lc: IncidentLifecycle, now: float) -> tuple[bool, str]:
+    """Press ACK, then apply the board's answer.
+
+    The laptop no longer treats its own keypress as an acknowledgement: it
+    queues ``ACKNOWLEDGE <id>`` and waits. Helpers simulate the firmware
+    replying ``OK ACKNOWLEDGED`` for the incident the laptop asked about.
+    """
+
+    incident_id = lc.incident.incident_id if lc.incident else None
+    ok, detail = lc.acknowledge(now)
+    if ok and detail == "OK":
+        lc.confirm_acknowledge(Reply(True, "ACKNOWLEDGED"), now, incident_id)
+    return ok, detail
+
+
 def fully_condition(lc: IncidentLifecycle) -> None:
     """Satisfy acknowledge + safe recovery so a reset should be accepted."""
 
     latch_at = latch_incident(lc)
-    ok, _ = lc.acknowledge(latch_at + 0.1)
+    ok, _ = ack(lc, latch_at + 0.1)
     assert ok
     recover(lc, latch_at)
 
@@ -152,7 +171,8 @@ def test_04_single_safe_frame_reaches_safe():
 
     assert lc.state is OperatorState.SAFE
     assert lc.status().alarm is AlarmIntent.SILENT
-    assert lc.serial_state == "SAFE"
+    # Nothing is open, so there is no lifecycle command to send at all.
+    assert lc.serial_state == "WAITING"
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +319,7 @@ def test_12_renewed_violation_rearms_audible_warning():
 
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
-    lc.acknowledge(latch_at + 0.1)
+    ack(lc, latch_at + 0.1)
     recover(lc, latch_at)
 
     assert lc.state is OperatorState.ACKNOWLEDGED
@@ -324,7 +344,7 @@ def test_13_acknowledge_silences_buzzer_but_keeps_red():
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
 
-    ok, detail = lc.acknowledge(latch_at + 0.1)
+    ok, detail = ack(lc, latch_at + 0.1)
 
     assert ok and detail == "OK"
     assert lc.state is OperatorState.ACKNOWLEDGED
@@ -338,7 +358,7 @@ def test_14_acknowledge_without_incident_is_rejected():
 
     lc = make_lifecycle()
 
-    ok, detail = lc.acknowledge(1.0)
+    ok, detail = ack(lc, 1.0)
 
     assert not ok
     assert detail == "NO_INCIDENT"
@@ -350,9 +370,9 @@ def test_15_acknowledge_is_idempotent():
 
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
-    lc.acknowledge(latch_at + 0.1)
+    ack(lc, latch_at + 0.1)
 
-    ok, detail = lc.acknowledge(latch_at + 0.2)
+    ok, detail = ack(lc, latch_at + 0.2)
 
     assert ok and detail == "ALREADY_ACKNOWLEDGED"
     assert lc.state is OperatorState.ACKNOWLEDGED
@@ -367,7 +387,7 @@ def test_16_recovered_before_acknowledged_then_acknowledged():
     recover(lc, latch_at)
     assert lc.state is OperatorState.SAFE_RECOVERED
 
-    ok, _ = lc.acknowledge(latch_at + 3.0)
+    ok, _ = ack(lc, latch_at + 3.0)
 
     assert ok
     assert lc.state is OperatorState.ACKNOWLEDGED
@@ -380,7 +400,7 @@ def test_17_recovery_after_acknowledge_moves_to_acknowledged():
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
 
-    lc.acknowledge(latch_at + 0.1)
+    ack(lc, latch_at + 0.1)
     assert lc.state is OperatorState.ACKNOWLEDGED
 
     recover(lc, latch_at)
@@ -425,7 +445,7 @@ def test_20_reset_rejected_without_safe_recovery():
 
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
-    lc.acknowledge(latch_at + 0.1)
+    ack(lc, latch_at + 0.1)
 
     ok, blocker = lc.reset(latch_at + 0.2)
 
@@ -488,7 +508,7 @@ def test_24_second_incident_gets_a_new_id():
     first_latch = latch_incident(lc, start=0.0)
     fully = lc.incident
     assert fully is not None and fully.incident_id == 1
-    lc.acknowledge(first_latch + 0.1)
+    ack(lc, first_latch + 0.1)
     recover(lc, first_latch)
     assert lc.reset(first_latch + 3.0)[0]
 
@@ -552,15 +572,16 @@ def test_27_serial_intent_never_clears_red_during_incident():
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
 
-    assert lc.serial_state == "ALARM"
+    assert lc.serial_state == "INCIDENT 1"
 
-    lc.acknowledge(latch_at + 0.1)
-    assert lc.serial_state == "ACKNOWLEDGE"
+    ack(lc, latch_at + 0.1)
+    assert lc.serial_state == "ACKNOWLEDGE 1"
 
     recover(lc, latch_at)
-    assert lc.serial_state == "ACKNOWLEDGE"
+    assert lc.serial_state == "ACKNOWLEDGE 1"
 
-    assert lc.serial_state != "SAFE"
+    # Red must still be asserted; nothing may fall back to a green preset.
+    assert lc.serial_state not in BARE_PRESETS
 
 
 def test_28_recovery_does_not_emit_safe_command():
@@ -568,13 +589,18 @@ def test_28_recovery_does_not_emit_safe_command():
 
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
-    lc.acknowledge(latch_at + 0.1)
+    ack(lc, latch_at + 0.1)
     recover(lc, latch_at)
 
-    commands = [lc.serial_command_for_transition(t) for t in lc.transitions]
+    commands = [
+        cmd
+        for cmd in (lc.serial_command_for_transition(t) for t in lc.transitions)
+        if cmd is not None
+    ]
 
-    assert "SAFE" not in commands
-    assert "ALARM" in commands
+    assert commands
+    assert not BARE_PRESETS.intersection(commands)
+    assert any("INCIDENT" in cmd for cmd in commands)
 
 
 @pytest.mark.parametrize(
@@ -602,15 +628,15 @@ def test_30_acknowledged_via_lifecycle_matches_serial_state():
         latch_at = latch_incident(lc)
 
         if acknowledge_first:
-            lc.acknowledge(latch_at + 0.1)
+            ack(lc, latch_at + 0.1)
             recover(lc, latch_at)
         else:
             recover(lc, latch_at)
-            lc.acknowledge(latch_at + 3.0)
+            ack(lc, latch_at + 3.0)
 
         assert lc.state is OperatorState.ACKNOWLEDGED
         assert lc.status().alarm is AlarmIntent.SILENCED
-        assert lc.serial_state != "SAFE"
+        assert lc.serial_state == "ACKNOWLEDGE 1"
 
 
 # ---------------------------------------------------------------------------
@@ -655,8 +681,8 @@ def test_32_reset_handshake_completes_after_firmware_accepts():
     assert lc.resolve_pending_command(Reply(True, "RESET_READY")) == "RESET"
     assert lc.pending_reset_command == "RESET"
 
-    # RESET accepted -> incident closed and we are waiting, never "SAFE".
-    assert lc.resolve_pending_command(Reply(True, "RESET_ACCEPTED")) == "WAITING"
+    # RESET accepted -> incident closed, so there is nothing left to re-assert.
+    assert lc.resolve_pending_command(Reply(True, "RESET_ACCEPTED")) is None
     assert lc.pending_reset_command is None
     assert lc.incident is None
     assert lc.state is OperatorState.WAITING_FOR_TARGET
@@ -676,7 +702,7 @@ def test_33_reset_refusal_releases_token_and_reasserts_state():
     )
 
     # Re-assert our own steady state so the two ends cannot drift apart.
-    assert restored == lc.serial_state == "ACKNOWLEDGE"
+    assert restored == lc.serial_state == "ACKNOWLEDGE 1"
     assert lc.pending_reset_command is None
     # A refusal is a no-op on the incident itself.
     assert lc.incident is not None
@@ -709,13 +735,13 @@ def test_35_completed_handshake_does_not_re_send_reset():
     lc = make_lifecycle()
     fully_condition(lc)
 
-    # Real operator flow: ALARM and ACKNOWLEDGE were drained as they happened.
-    assert lc.take_pending_command() == "ALARM"
-    assert lc.take_pending_command() == "ACKNOWLEDGE"
+    # Real operator flow: INCIDENT <id> and ACKNOWLEDGE <id> were drained as they happened.
+    assert lc.take_pending_command() == "INCIDENT 1"
+    assert lc.take_pending_command() == "ACKNOWLEDGE 1"
 
     lc.request_reset(lc.last_now + 0.1)
     assert lc.resolve_pending_command(Reply(True, "RESET_READY")) == "RESET"
-    assert lc.resolve_pending_command(Reply(True, "RESET_ACCEPTED")) == "WAITING"
+    assert lc.resolve_pending_command(Reply(True, "RESET_ACCEPTED")) is None
 
     # Nothing is outstanding: the RESET half of the handshake was already sent.
     assert lc.take_pending_command() is None
@@ -766,7 +792,7 @@ def test_38_reset_requires_the_recovery_to_be_verified():
 
     lc = make_lifecycle()
     latch_at = latch_incident(lc)
-    ok, _ = lc.acknowledge(latch_at + 0.1)
+    ok, _ = ack(lc, latch_at + 0.1)
     assert ok
 
     # Reach safe recovery without going through the helper that verifies it.
@@ -803,7 +829,7 @@ def test_39_new_incident_starts_unverified():
     assert lc.incident.incident_id != first_id
     assert lc.onboard_verified_incident is None
 
-    ok, _ = lc.acknowledge(latch_at + 0.1)
+    ok, _ = ack(lc, latch_at + 0.1)
     assert ok
     feed(lc, SAFE, latch_at + 0.5)
     feed(lc, SAFE, latch_at + 1.5)
