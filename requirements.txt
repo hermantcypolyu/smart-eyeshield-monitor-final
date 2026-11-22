@@ -18,5 +18,11 @@ PyYAML==6.0.3
 python-dotenv==1.2.4
 pyserial==3.5
 
+# --- Presentation layer (optional) ---
+# The PySide6 dashboard is additive: the CLI demo and every tool run without it.
+# Qt is pinned exactly because its private drawing code changes between minor
+# releases.
+PySide6==6.9.1
+
 # --- Development / test ---
 pytest==9.2.0

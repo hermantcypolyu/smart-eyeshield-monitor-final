@@ -116,6 +116,8 @@ experiments/raw/
 
 # Test and coverage output
 .pytest_cache/
+# Scratch directory used by test runs and the torch inductor cache.
+.tmp/
 .coverage
 htmlcov/
 .coverage.*
