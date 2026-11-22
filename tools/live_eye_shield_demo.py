@@ -798,6 +798,23 @@ def parse_source(value: str) -> int | str:
     return value
 
 
+def _open_source(source: int | str) -> "cv2.typing.MatLike | None":
+    """Return a decoded still image, or None when the source is a stream.
+
+    ``cv2.VideoCapture`` accepts an image path but only ever yields one frame:
+    the second ``read()`` returns False, so an image source used to abort after
+    the first frame and could never reach a two-second confirmation. Detecting
+    the still up front keeps images usable as repeatable smoke tests.
+    """
+
+    if not isinstance(source, str) or not source or not Path(source).is_file():
+        return None
+
+    image = cv2.imread(source)
+
+    return image if image is not None else None
+
+
 @dataclass(frozen=True)
 class FrameDiagnostics:
     """Measurement of one processed frame.
@@ -1427,12 +1444,19 @@ def main() -> int:
             )
 
     source = parse_source(args.source)
-    capture = cv2.VideoCapture(source)
+    still_image = _open_source(source)
 
-    if not capture.isOpened():
-        raise SystemExit(
-            f"ERROR: cannot open source: {source}"
-        )
+    if still_image is not None:
+        capture = None
+        static_frame = still_image
+    else:
+        capture = cv2.VideoCapture(source)
+        static_frame = None
+
+        if not capture.isOpened():
+            raise SystemExit(
+                f"ERROR: cannot open source: {source}"
+            )
 
     serial_connection: serial.Serial | None = None
 
@@ -1467,7 +1491,8 @@ def main() -> int:
             read_serial_responses(serial_connection)
 
         except serial.SerialException as error:
-            capture.release()
+            if capture is not None:
+                capture.release()
 
             raise SystemExit(
                 "ERROR: cannot open ESP32 serial port: "
@@ -1544,7 +1569,10 @@ def main() -> int:
 
     try:
         while True:
-            ok, frame = capture.read()
+            if static_frame is not None:
+                ok, frame = True, static_frame.copy()
+            else:
+                ok, frame = capture.read()
 
             if not ok:
                 print(
@@ -1819,7 +1847,8 @@ def main() -> int:
         print("\nInterrupted by user")
 
     finally:
-        capture.release()
+        if capture is not None:
+            capture.release()
         cv2.destroyAllWindows()
 
         # Do not send ALL_OFF here.

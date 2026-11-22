@@ -80,6 +80,9 @@ def recover(lc: IncidentLifecycle, start: float) -> float:
     feed(lc, SAFE, start + 1.5)
     feed(lc, SAFE, start + 2.5)
     assert lc.incident is not None and lc.incident.safe_recovered
+    # The video loop is the only authority allowed to report a recovery; the
+    # reset gate refuses an incident nobody observed as recovered.
+    assert lc.mark_onboard_verified() == lc.incident.incident_id
     return start + 2.5
 
 
@@ -716,3 +719,93 @@ def test_35_completed_handshake_does_not_re_send_reset():
 
     # Nothing is outstanding: the RESET half of the handshake was already sent.
     assert lc.take_pending_command() is None
+
+
+# ---------------------------------------------------------------------------
+# 36-38: onboard recovery verification (the crash the live run exposed)
+# ---------------------------------------------------------------------------
+
+
+def test_36_mark_onboard_verified_is_idempotent():
+    """Repeated SAFE frames must not re-record or bump anything.
+
+    The video loop calls this on every frame where ``safe_recovered`` holds, so
+    it has to be a cheap no-op the second time.
+    """
+
+    lc = make_lifecycle()
+    latch_at = latch_incident(lc)
+    recover(lc, latch_at)
+
+    incident_id = lc.incident.incident_id
+    assert lc.mark_onboard_verified() == incident_id
+    assert lc.mark_onboard_verified() == incident_id
+    assert lc.onboard_verified_incident == incident_id
+
+
+def test_37_mark_onboard_verified_needs_an_incident():
+    """Nothing is recorded without an incident, or before recovery."""
+
+    lc = make_lifecycle()
+    assert lc.mark_onboard_verified() is None
+
+    latch_at = latch_incident(lc)
+    # Confirmed but not recovered: the detector has not proven anything yet.
+    assert lc.mark_onboard_verified() is None
+    assert lc.onboard_verified_incident is None
+
+
+def test_38_reset_requires_the_recovery_to_be_verified():
+    """A missed SAFE_RECOVERED observation must not become a clearable incident.
+
+    Regression test: the demo called ``mark_onboard_verified`` on a lifecycle
+    that did not define it, so every recovery crashed the run. The gate is now
+    enforced here too, so the failure surfaces as a refused reset rather than an
+    AttributeError in the camera loop.
+    """
+
+    lc = make_lifecycle()
+    latch_at = latch_incident(lc)
+    ok, _ = lc.acknowledge(latch_at + 0.1)
+    assert ok
+
+    # Reach safe recovery without going through the helper that verifies it.
+    feed(lc, SAFE, latch_at + 0.5)
+    feed(lc, SAFE, latch_at + 1.5)
+    feed(lc, SAFE, latch_at + 2.5)
+    assert lc.incident.safe_recovered
+
+    assert lc.reset_blocker() is ResetBlocker.NOT_SAFE_RECOVERED
+    accepted, blocker = lc.reset(lc.last_now + 0.1)
+    assert not accepted
+    assert blocker is ResetBlocker.NOT_SAFE_RECOVERED
+    assert lc.incident is not None
+
+    assert lc.mark_onboard_verified() == lc.incident.incident_id
+    assert lc.reset_blocker() is ResetBlocker.NONE
+    accepted, blocker = lc.reset(lc.last_now + 0.2)
+    assert accepted and blocker is ResetBlocker.NONE
+
+
+def test_39_new_incident_starts_unverified():
+    """The recovery proof is per incident, not per process."""
+
+    lc = make_lifecycle()
+    fully_condition(lc)
+    first_id = lc.incident.incident_id
+    assert lc.onboard_verified_incident == first_id
+
+    accepted, _ = lc.reset(lc.last_now + 0.1)
+    assert accepted
+    assert lc.onboard_verified_incident is None
+
+    latch_at = latch_incident(lc, start=10.0)
+    assert lc.incident.incident_id != first_id
+    assert lc.onboard_verified_incident is None
+
+    ok, _ = lc.acknowledge(latch_at + 0.1)
+    assert ok
+    feed(lc, SAFE, latch_at + 0.5)
+    feed(lc, SAFE, latch_at + 1.5)
+    feed(lc, SAFE, latch_at + 2.5)
+    assert lc.reset_blocker() is ResetBlocker.NOT_SAFE_RECOVERED

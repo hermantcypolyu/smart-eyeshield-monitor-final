@@ -484,6 +484,9 @@ class IncidentLifecycle:
     def _latch(self, now: float, elapsed: float) -> LifecycleStatus:
         self.incident = _Incident(incident_id=self.next_incident_id)
         self.next_incident_id += 1
+        # A new incident starts unverified: the recovery proof belongs to the
+        # incident it was observed for, not to the monitor session.
+        self.onboard_verified_incident = None
         # Frozen at confirmation so later frames cannot overwrite it with 0.00,
         # which is exactly the bug the timer fix addressed at frame level.
         self.confirmed_after_seconds = elapsed
@@ -572,6 +575,23 @@ class IncidentLifecycle:
         # Red stays on. This is the difference between acknowledge and reset.
         return True, "OK"
 
+    def mark_onboard_verified(self) -> int | None:
+        """Record that the detector itself proved recovery for this incident.
+
+        Called only from the camera loop, never from a key handler. Returns the
+        incident id that is now verified, or None when there was nothing to
+        verify. Idempotent: repeated calls return the same id.
+        """
+
+        if self.incident is None:
+            return None
+
+        if not self.incident.safe_recovered:
+            return None
+
+        self.onboard_verified_incident = self.incident.incident_id
+        return self.onboard_verified_incident
+
     def reset_blocker(self) -> ResetBlocker:
         """The first precondition that is not met, or NONE if a reset is valid."""
 
@@ -580,6 +600,10 @@ class IncidentLifecycle:
         if not self.incident.acknowledged:
             return ResetBlocker.NOT_ACKNOWLEDGED
         if not self.incident.safe_recovered:
+            return ResetBlocker.NOT_SAFE_RECOVERED
+        # A missed transition must not be able to skip the observation: a
+        # recovery the detector never reported is not a recovery.
+        if self.onboard_verified_incident != self.incident.incident_id:
             return ResetBlocker.NOT_SAFE_RECOVERED
         if not self._health_ok():
             return ResetBlocker.HEALTH_INVALID
