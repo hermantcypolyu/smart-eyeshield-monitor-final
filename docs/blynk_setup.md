@@ -74,6 +74,36 @@ transition *into* `ALARM_LATCHED` for a specific `incident_id`. It is never
 fired on every frame, so the Blynk event log and push notifications are not
 spammed.
 
+### Enabling push notifications (one-time, console-side)
+
+Firing the event via the HTTPS API only *logs* it. For the Blynk app to push a
+notification to your phone (or send email/SMS), you must enable notifications
+for the event in the console — no amount of Python code can do this for you:
+
+1. Blynk.Console → Developer Zone → **My Templates** → your template.
+2. Open **Events** and select the `eye_violation` event.
+3. Turn **Notifications ON** and add yourself (phone / email) as a recipient.
+
+Without this, `logEvent` succeeds but nothing reaches your phone. Note the
+event still fires only when the lifecycle actually reaches `ALARM_LATCHED` with
+an incident id — you must keep the "no goggles" violation present for longer
+than `--confirmation-seconds` (default 2 s) for the state machine to latch.
+
+## "Offline" label in the console (expected)
+
+The Blynk.Console shows a device as **Online/Offline** based on an MQTT /
+Blynk-Protocol connection (the `Blynk.run()` heartbeat), *not* on datastream
+writes. This project uses the **HTTPS REST API**, which writes values but never
+opens that connection, so the console's device status will always read
+**"Offline"** even while telemetry is updating normally.
+
+This is cosmetic and expected, and it does **not** block data updates or
+notifications (events work independently over HTTPS). The `V7` "Link Status"
+datastream is what this bridge controls, and it reflects the laptop's own
+serial link — that is why the console's "Offline" label and the dashboard's
+"ONLINE" widget can disagree. Do not re-diagnose the "Offline" label as a bug;
+it is an inherent property of the REST bridge.
+
 ## Failure behaviour
 
 - **Network/timeout:** `BlynkClient` is non-blocking. Failed pushes are queued
