@@ -78,36 +78,61 @@ spammed.
 
 Firing the event via the HTTPS API only *logs* it. For the Blynk app to push a
 notification to your phone (or send email/SMS), you must enable notifications
-in **two places** in the console — no amount of Python code can do this for
-you. Both are required; missing the second is the most common reason a push
-never arrives even though `logEvent` returns HTTP 200.
+in the console — no amount of Python code can do this for you. There are two
+**independent** recipient mechanisms; either one alone is enough, but each has
+a non-obvious gotcha that will make a push silently fail even though
+`logEvent` returns HTTP 200.
 
-**Step 1 — enable the event's notifications (template level):**
+### Mechanism A — device-level recipient (the one you want for a demo)
 
-1. Blynk.Console → Developer Zone → **My Templates** → your template → **Edit**.
-2. Open **Events** and select the `eye_violation` event.
-3. Open the event's **Notifications** tab and turn **Enable notifications** ON.
-4. Save the template.
+This is the normal path: pick yourself as the recipient on the device.
 
-**Step 2 — turn on Push and pick a recipient (device level):**
+1. First, in the **template**, the event must expose notifications to end
+   users. Blynk.Console → Developer Zone → **My Templates** → your template →
+   **Edit** → **Events** → `eye_violation` → **Notifications** tab → turn
+   **"Notification management"** ON (this makes the event appear in the
+   device-level list). Save the template.
+2. Then, at the **device** level: Blynk.Console → **Devices** → your device →
+   **Actions (⋯)** → **Notification Settings** → `eye_violation` → **Edit
+   Settings** → turn **Push** ON → add a recipient (search your own name, or
+   choose **All members**) → **Apply**.
 
-1. Blynk.Console → **Devices** → select the device that logs the event.
-2. Open its **Actions** (⋯) menu → **Notification Settings**.
-3. Select the `eye_violation` event → **Edit Settings**.
-4. Turn **Push** ON, add a recipient (search your own name/email, or
-   **All members**), then **Apply**.
+> ⚠️ If you do **not** see `eye_violation` in the device-level Notification
+> Settings list (or the **Edit Settings** button is greyed out), the
+> "Notification management" toggle from step 1 is **OFF**. Go back and turn it
+> on — this is the single most common silent failure.
+
+### Mechanism B — default recipient (template level)
+
+A "default recipient" can **only** be selected from **Metadata fields**
+(`Device Owner`, `Contact`, or `Email`) — you **cannot** pick an arbitrary
+user here. If you try, the list will be empty. To use it you must first create
+a Metadata field (e.g. an `Email` field with your address) and then select that
+field as the default recipient. For a personal demo, Mechanism A is simpler.
+
+### The two remaining silent killers (check both)
+
+1. **Notification Limits** (in the event's Notifications tab): if a
+   **Limit Period** is set (e.g. "1 hour"), Blynk sends **one notification per
+   period and silently drops the rest**. This exactly matches the symptom
+   "I got *one* notification earlier, then nothing no matter how many times I
+   test." **Set Limit Period to "No limit"** (or remove the limit) while
+   testing, or every repeated `test_blynk.py` run within the period is
+   suppressed even though `logEvent` returns 200.
+2. **iOS notification permission**: the push is delivered to the Blynk app on
+   the phone logged in as the recipient, and iOS must be allowing notifications
+   for Blynk (Settings → Notifications → Blynk). Also make sure you are logged
+   into the **same** Blynk account on the phone as the recipient you selected.
 
 > Only **registered Blynk users** can be recipients — you cannot type an
-> arbitrary phone number. The push is delivered to the Blynk app on the phone
-> that is logged in as that user (and the app must be allowed notifications in
-> iOS Settings). Re-provisioning a device resets Step 2, so if pushes stop
-> after reflashing/recreating the device, re-apply the device-level settings.
+> arbitrary phone number. Re-provisioning a device resets the device-level
+> settings, so if pushes stop after reflashing/recreating the device, re-apply
+> Mechanism A step 2.
 
-Without both steps, `logEvent` succeeds (HTTP 200, event logged) but nothing
-reaches your phone. Note the event still fires only when the lifecycle actually
-reaches `ALARM_LATCHED` with an incident id — you must keep the "no goggles"
-violation present for longer than `--confirmation-seconds` (default 2 s) for
-the state machine to latch.
+Even with notifications configured correctly, the event fires only when the
+lifecycle actually reaches `ALARM_LATCHED` with an incident id — you must keep
+the "no goggles" violation present for longer than `--confirmation-seconds`
+(default 2 s) for the state machine to latch.
 
 ## "Offline" label in the console (expected)
 
