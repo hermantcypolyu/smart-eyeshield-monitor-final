@@ -23,6 +23,7 @@ from __future__ import annotations
 import csv
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -333,6 +334,10 @@ class MainWindow(QMainWindow):
         # lifecycle and pushes V0-V10; it can never drive an output. Missing
         # or disabled config degrades to a chip that says so, never a crash.
         self._blynk: BlynkClient | None = None
+        # ISO timestamp of the most recent ALARM_LATCHED transition. Tracked
+        # here (GUI layer) rather than in the shared state machine so V6 stays
+        # populated without touching incident_lifecycle.py.
+        self._last_alert_iso: str | None = None
         if blynk_enabled and not demo_data:
             try:
                 self._blynk = BlynkClient.from_env(require=False)
@@ -929,7 +934,17 @@ class MainWindow(QMainWindow):
         if status.safe_recovered:
             self.lifecycle.mark_onboard_verified()
 
-        self._push_blynk(status, fps=fps, top_confidence=top_confidence)
+        # Record the wall-clock moment the alarm first latched so V6 (Last
+        # Alert Time) carries a real ISO timestamp in the cloud.
+        if status.state is OperatorState.ALARM_LATCHED and status.incident_id:
+            self._last_alert_iso = datetime.now(timezone.utc).isoformat()
+
+        self._push_blynk(
+            status,
+            fps=fps,
+            top_confidence=top_confidence,
+            last_alert_time=self._last_alert_iso,
+        )
 
         self.gauge = GaugeSnapshot(
             observation=getattr(observation, "value", kind),
@@ -959,6 +974,7 @@ class MainWindow(QMainWindow):
         *,
         fps: float | None = None,
         top_confidence: float | None = None,
+        last_alert_time: str | None = None,
     ) -> None:
         """Push the lifecycle state to Blynk as a monitoring-only reading.
 
@@ -988,7 +1004,7 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            client.push_status(reading)
+            client.push_status(reading, last_alert_time=last_alert_time)
         except Exception:  # noqa: BLE001 - cloud must never break the loop
             self._log(
                 "blynk",
