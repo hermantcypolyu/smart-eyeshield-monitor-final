@@ -340,7 +340,13 @@ class MainWindow(QMainWindow):
         self._last_alert_iso: str | None = None
         if blynk_enabled and not demo_data:
             try:
-                self._blynk = BlynkClient.from_env(require=False)
+                # use_thread=False so every push (and the eye_violation
+                # logEvent) is sent synchronously on the GUI's own tick rather
+                # than handed to a background worker whose timing is
+                # independent of the Qt event loop. The event was firing in
+                # the CLI because test_blynk.py called flush(); the GUI never
+                # exits, so synchronous sends are the reliable choice here.
+                self._blynk = BlynkClient.from_env(require=False, use_thread=False)
             except BlynkConfigError:
                 self._blynk = None
 
@@ -1003,13 +1009,42 @@ class MainWindow(QMainWindow):
             buzzer=buzzer,
         )
 
+        # Diagnostic line so the live GUI run shows exactly what is (or is not)
+        # being sent each tick. An incident_id of None/0 here means the alarm
+        # fired before the lifecycle allocated an id, and the event is skipped
+        # by the anti-spam guard.
+        if status.state is OperatorState.ALARM_LATCHED or reading.incident_id:
+            print(
+                f"DEBUG: Sending Blynk. State: {status.state.value}, "
+                f"ID: {reading.incident_id}"
+            )
+
         try:
-            client.push_status(reading, last_alert_time=last_alert_time)
-        except Exception:  # noqa: BLE001 - cloud must never break the loop
+            results = client.push_status(reading, last_alert_time=last_alert_time)
+        except Exception as exc:  # noqa: BLE001 - cloud must never break the loop
+            # Surface the real error instead of swallowing it, so a bad token
+            # or a timeout is visible in the terminal rather than invisible.
+            import traceback
+
+            print(f"DEBUG: Blynk push raised {type(exc).__name__}: {exc}")
+            traceback.print_exc()
             self._log(
                 "blynk",
-                "Blynk push failed; continuing without cloud",
+                f"Blynk push failed ({type(exc).__name__}: {exc}); "
+                "continuing without cloud",
                 source="blynk",
+            )
+            return
+
+        # Log the event outcome explicitly so the operator can see whether the
+        # eye_violation event actually fired (vs being suppressed as a duplicate
+        # or by cooldown) without digging through the client internals.
+        event = results.get("event")
+        if event is not None:
+            print(
+                f"DEBUG: Blynk event result: status={event.status.value}, "
+                f"detail={event.detail}, http={event.http_status}, "
+                f"msg={event.message!r}"
             )
 
     # -- serial -------------------------------------------------------------
