@@ -78,16 +78,36 @@ spammed.
 
 Firing the event via the HTTPS API only *logs* it. For the Blynk app to push a
 notification to your phone (or send email/SMS), you must enable notifications
-for the event in the console — no amount of Python code can do this for you:
+in **two places** in the console — no amount of Python code can do this for
+you. Both are required; missing the second is the most common reason a push
+never arrives even though `logEvent` returns HTTP 200.
 
-1. Blynk.Console → Developer Zone → **My Templates** → your template.
+**Step 1 — enable the event's notifications (template level):**
+
+1. Blynk.Console → Developer Zone → **My Templates** → your template → **Edit**.
 2. Open **Events** and select the `eye_violation` event.
-3. Turn **Notifications ON** and add yourself (phone / email) as a recipient.
+3. Open the event's **Notifications** tab and turn **Enable notifications** ON.
+4. Save the template.
 
-Without this, `logEvent` succeeds but nothing reaches your phone. Note the
-event still fires only when the lifecycle actually reaches `ALARM_LATCHED` with
-an incident id — you must keep the "no goggles" violation present for longer
-than `--confirmation-seconds` (default 2 s) for the state machine to latch.
+**Step 2 — turn on Push and pick a recipient (device level):**
+
+1. Blynk.Console → **Devices** → select the device that logs the event.
+2. Open its **Actions** (⋯) menu → **Notification Settings**.
+3. Select the `eye_violation` event → **Edit Settings**.
+4. Turn **Push** ON, add a recipient (search your own name/email, or
+   **All members**), then **Apply**.
+
+> Only **registered Blynk users** can be recipients — you cannot type an
+> arbitrary phone number. The push is delivered to the Blynk app on the phone
+> that is logged in as that user (and the app must be allowed notifications in
+> iOS Settings). Re-provisioning a device resets Step 2, so if pushes stop
+> after reflashing/recreating the device, re-apply the device-level settings.
+
+Without both steps, `logEvent` succeeds (HTTP 200, event logged) but nothing
+reaches your phone. Note the event still fires only when the lifecycle actually
+reaches `ALARM_LATCHED` with an incident id — you must keep the "no goggles"
+violation present for longer than `--confirmation-seconds` (default 2 s) for
+the state machine to latch.
 
 ## "Offline" label in the console (expected)
 
