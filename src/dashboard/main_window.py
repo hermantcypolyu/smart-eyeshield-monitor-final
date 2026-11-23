@@ -43,7 +43,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from tools.incident_lifecycle import IncidentLifecycle, OperatorState, ResetBlocker
+from tools.incident_lifecycle import (
+    AlarmIntent,
+    IncidentLifecycle,
+    OperatorState,
+    ResetBlocker,
+)
+
+from src.blynk_client import (
+    BlynkClient,
+    BlynkConfigError,
+    LifecycleReading,
+)
 
 from . import branding, theme
 from .adapters import (
@@ -103,6 +114,24 @@ def _protocol_helpers():
     )
 
     return CommandCorrelator, Observation, TemporalFilter, parse_serial_reply
+
+
+def alarm_intent_to_gpio(alarm: AlarmIntent) -> tuple[int, int, int]:
+    """Map an :class:`AlarmIntent` to physical (green, red, buzzer) levels.
+
+    Mirrors the firmware's IO11/IO12/IO14 semantics so the Blynk dashboard
+    reports what the operator would actually see on the board. ``SILENCED``
+    holds red=1 (buzzer acknowledged away), which is why ``ACKNOWLEDGED`` and
+    ``SAFE_CLEAR_PENDING`` must keep showing red in the cloud.
+    """
+
+    return {
+        AlarmIntent.SILENT: (1, 0, 0),
+        AlarmIntent.WAITING: (0, 0, 0),
+        AlarmIntent.SOUNDING: (0, 1, 1),
+        AlarmIntent.SILENCED: (0, 1, 0),
+        AlarmIntent.FAULT: (0, 0, 0),
+    }[alarm]
 
 
 class _WorkerPort:
@@ -227,6 +256,7 @@ class MainWindow(QMainWindow):
         clearance_seconds: float = 2.0,
         max_runtime: float = 0.0,
         autostart: bool = True,
+        blynk_enabled: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -298,6 +328,16 @@ class MainWindow(QMainWindow):
         self.no_goggles_confidence = no_goggles_confidence
         self.iou = iou
         self.device = device
+
+        # Blynk is a monitoring/notification-only bridge. It observes the
+        # lifecycle and pushes V0-V10; it can never drive an output. Missing
+        # or disabled config degrades to a chip that says so, never a crash.
+        self._blynk: BlynkClient | None = None
+        if blynk_enabled and not demo_data:
+            try:
+                self._blynk = BlynkClient.from_env(require=False)
+            except BlynkConfigError:
+                self._blynk = None
 
         self.setWindowTitle(branding.TITLE)
         self.resize(1520, 950)
@@ -842,9 +882,23 @@ class MainWindow(QMainWindow):
             # information must never be promoted to SAFE.
             observation = self.Observation.UNKNOWN
 
-        self._advance(observation, now, kind=str(frame.observation))
+        self._advance(
+            observation,
+            now,
+            kind=str(frame.observation),
+            fps=frame.fps,
+            top_confidence=peak,
+        )
 
-    def _advance(self, observation, now: float, *, kind: str) -> None:
+    def _advance(
+        self,
+        observation,
+        now: float,
+        *,
+        kind: str,
+        fps: float | None = None,
+        top_confidence: float | None = None,
+    ) -> None:
         """Run one tick of the filter and lifecycle, then drain commands.
 
         ``pending_since``/``safe_since`` come from the filter rather than being
@@ -875,6 +929,8 @@ class MainWindow(QMainWindow):
         if status.safe_recovered:
             self.lifecycle.mark_onboard_verified()
 
+        self._push_blynk(status, fps=fps, top_confidence=top_confidence)
+
         self.gauge = GaugeSnapshot(
             observation=getattr(observation, "value", kind),
             state=status.state.value,
@@ -896,6 +952,49 @@ class MainWindow(QMainWindow):
             )
 
         self._drain_commands(now)
+
+    def _push_blynk(
+        self,
+        status,
+        *,
+        fps: float | None = None,
+        top_confidence: float | None = None,
+    ) -> None:
+        """Push the lifecycle state to Blynk as a monitoring-only reading.
+
+        Builds a :class:`LifecycleReading` from the physical GPIO mirror so the
+        cloud shows the red LED latched through ACKNOWLEDGED and
+        SAFE_CLEAR_PENDING, exactly as the board holds it. The client enforces
+        the one-event-per-incident anti-spam rule and is fully non-blocking.
+        """
+
+        client = self._blynk
+
+        if client is None or not client.enabled:
+            return
+
+        green, red, buzzer = alarm_intent_to_gpio(status.alarm)
+        reading = LifecycleReading(
+            state=status.state.value,
+            incident_id=status.incident_id,
+            violation_ratio=status.violation_ratio,
+            link_online=bool(self._serial_ok),
+            incident_count=max(0, self.lifecycle.next_incident_id - 1),
+            top_confidence=top_confidence,
+            fps=fps,
+            green=green,
+            red=red,
+            buzzer=buzzer,
+        )
+
+        try:
+            client.push_status(reading)
+        except Exception:  # noqa: BLE001 - cloud must never break the loop
+            self._log(
+                "blynk",
+                "Blynk push failed; continuing without cloud",
+                source="blynk",
+            )
 
     # -- serial -------------------------------------------------------------
 
@@ -1235,6 +1334,14 @@ class MainWindow(QMainWindow):
         self.blynk_chip.setVisible(not self.demo_data)
         self.yellow_chip.setVisible(not self.demo_data)
 
+        if self.demo_data:
+            return
+
+        if self._blynk is not None and self._blynk.enabled:
+            self.blynk_chip.set_chip("BLYNK ONLINE", theme.GREEN)
+        else:
+            self.blynk_chip.set_chip("BLYNK DISABLED", theme.TEXT_MUTED)
+
     def _update_footer(self, snapshot: DashboardSnapshot) -> None:
         board = snapshot.board
         model = self.weights.split("/")[-1]
@@ -1280,7 +1387,25 @@ class MainWindow(QMainWindow):
             status_age_seconds=self._status_age,
             demo_data=self.demo_data,
             missing_logo=bool(branding.missing_logos()),
+            blynk_ok=self._blynk_status(),
         )
+
+    def _blynk_status(self) -> bool | None:
+        """Health status of the Blynk bridge for the health panel.
+
+        ``None`` means "not applicable" (demo data or no config); ``True``
+        means enabled and pushing; ``False`` means explicitly disabled.
+        """
+
+        if self.demo_data:
+            return None
+
+        client = self._blynk
+
+        if client is None:
+            return None
+
+        return bool(client.enabled)
 
     def _step_fixture(self, now: float) -> None:
         driver = self._fixture
@@ -1571,6 +1696,13 @@ class MainWindow(QMainWindow):
         # would leave the real serial thread holding the port.
         if serial is not None and hasattr(serial, "stop"):
             serial.stop()
+
+        if self._blynk is not None:
+            try:
+                self._blynk.close()
+            except Exception:  # noqa: BLE001 - shutdown must never raise
+                pass
+            self._blynk = None
 
         self._log(
             "operator",

@@ -89,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Render without a display, for automated smoke tests.",
     )
+    parser.add_argument(
+        "--no-blynk",
+        action="store_true",
+        help="Disable the Blynk cloud bridge (monitoring/notification).",
+    )
 
     return parser
 
@@ -134,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         confirmation_seconds=args.confirmation_seconds,
         clearance_seconds=args.clearance_seconds,
         max_runtime=args.max_runtime,
+        blynk_enabled=not args.no_blynk,
     )
 
     notice = header_notice()

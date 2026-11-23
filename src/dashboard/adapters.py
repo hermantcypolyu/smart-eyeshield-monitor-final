@@ -221,11 +221,14 @@ def build_health_items(
     status_age_seconds: float | None = None,
     demo_data: bool = False,
     missing_logo: bool = False,
+    blynk_ok: bool | None = None,
 ) -> tuple[HealthItem, ...]:
     """Assemble the subsystem health rows.
 
-    ``Blynk`` and ``Wi-Fi`` are always ``NOT CONFIGURED`` in this build. Showing
-    them as OFFLINE would imply a fault; showing them as ONLINE would be a lie.
+    ``Blynk`` reports ``ONLINE`` when the bridge is enabled, ``DISABLED`` when
+    explicitly turned off, and ``NOT CONFIGURED`` when no token is present.
+    ``Wi-Fi`` is always ``NOT CONFIGURED``: the laptop's own uplink is used, so
+    there is no device Wi-Fi to report.
     """
 
     def tri(value: bool | None, detail_ok: str, detail_bad: str) -> HealthItem:
@@ -280,8 +283,17 @@ def build_health_items(
                 )
             )
 
-    rows.append(HealthItem("Blynk", theme.NOT_CONFIGURED, "not part of this build"))
-    rows.append(HealthItem("Wi-Fi", theme.NOT_CONFIGURED, "not part of this build"))
+    if demo_data:
+        blynk_item = HealthItem("Blynk", theme.DISABLED, "fixtures (demo data)")
+    elif blynk_ok is None:
+        blynk_item = HealthItem("Blynk", theme.NOT_CONFIGURED, "no token in .env")
+    elif blynk_ok:
+        blynk_item = HealthItem("Blynk", theme.ONLINE, "monitoring & notification")
+    else:
+        blynk_item = HealthItem("Blynk", theme.DISABLED, "disabled via --no-blynk")
+
+    rows.append(blynk_item)
+    rows.append(HealthItem("Wi-Fi", theme.NOT_CONFIGURED, "laptop uplink only"))
     rows.append(
         HealthItem(
             "Branding assets",

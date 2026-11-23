@@ -61,7 +61,7 @@ def live_window(qapp):
 
     from src.dashboard.main_window import MainWindow
 
-    widget = MainWindow(demo_data=False, autostart=False)
+    widget = MainWindow(demo_data=False, autostart=False, blynk_enabled=False)
     # Simulate a healthy camera: these tests are about the protocol path, not
     # about a webcam, and a window with no frames is correctly in FAULT.
     widget._camera_ok = True

@@ -1336,7 +1336,7 @@ def main() -> int:
 
     parser.add_argument(
         "--weights",
-        default="models/best.pt",
+        default="models/best_v2.pt",
     )
 
     parser.add_argument(
