@@ -17,6 +17,9 @@ opencv-python==5.0.0.93
 PyYAML==6.0.3
 python-dotenv==1.2.4
 pyserial==3.5
+# Blynk IoT REST bridge (src/blynk_client.py). Monitoring only -- a failed
+# push must never stop the alarm, so this is imported defensively nowhere.
+requests==2.34.2
 
 # --- Presentation layer (optional) ---
 # The PySide6 dashboard is additive: the CLI demo and every tool run without it.

@@ -95,6 +95,11 @@ from tools.incident_lifecycle import (
     OperatorState,
     ResetBlocker,
 )
+from src.blynk_client import (
+    BlynkClient,
+    BlynkConfigError,
+    LifecycleReading,
+)
 from tools.v2_acceptance_schema import (
     CONDITIONS,
     CSV_COLUMNS as ACCEPTANCE_COLUMNS,
@@ -396,6 +401,24 @@ def operator_colour(state: OperatorState) -> tuple[int, int, int]:
         OperatorState.ACKNOWLEDGED: (0, 120, 255),
         OperatorState.FAULT: (255, 0, 255),
     }[state]
+
+
+def alarm_intent_to_gpio(alarm: AlarmIntent) -> tuple[int, int, int]:
+    """Map an :class:`AlarmIntent` to physical (green, red, buzzer) levels.
+
+    This is the same meaning the firmware enforces on IO11/IO12/IO14, so the
+    Blynk dashboard mirrors what the operator would actually see on the board.
+    ``SILENCED`` still holds the red LED on (buzzer acknowledged away), which
+    is exactly why ``ACKNOWLEDGED`` must keep showing red=1 in the cloud.
+    """
+
+    return {
+        AlarmIntent.SILENT: (1, 0, 0),    # green only, nothing wrong
+        AlarmIntent.WAITING: (0, 0, 0),   # nothing on yet
+        AlarmIntent.SOUNDING: (0, 1, 1),  # red + buzzer
+        AlarmIntent.SILENCED: (0, 1, 0),  # red held, buzzer acknowledged
+        AlarmIntent.FAULT: (0, 0, 0),     # parked; no trusted output
+    }[alarm]
 
 
 def detection_colour(class_name: str) -> tuple[int, int, int]:
@@ -843,6 +866,7 @@ def draw_status(
     last_tx: str = "",
     last_rx: str = "",
     model_name: str = "",
+    blynk_status: str = "DISABLED",
 ) -> None:
     """Draw the operator status panel.
 
@@ -936,7 +960,7 @@ def draw_status(
             ),
             (
                 f"SERIAL: {serial_status}  |  "
-                "BLYNK: NOT CONFIGURED"
+                f"BLYNK: {blynk_status}"
             ),
             f"TX: {last_tx or '-'}   RX: {last_rx or '-'}",
         ]
@@ -1483,6 +1507,16 @@ def main() -> int:
         ),
     )
 
+    parser.add_argument(
+        "--no-blynk",
+        action="store_true",
+        help=(
+            "Disable the Blynk Cloud bridge even when BLYNK_ENABLED "
+            "is set in .env. Monitoring/notification only; no remote "
+            "control."
+        ),
+    )
+
     args = parser.parse_args()
 
     for argument_name, value in (
@@ -1701,6 +1735,17 @@ def main() -> int:
         clearance_seconds=args.clearance_seconds,
     )
 
+    # Blynk Cloud bridge: monitoring & notification only. The client is
+    # non-blocking and degrades to a no-op when disabled, so a missing .env
+    # or an unreachable cloud never halts detection or the serial link.
+    blynk: BlynkClient | None = None
+    if not args.no_blynk:
+        try:
+            blynk = BlynkClient.from_env(require=False)
+        except BlynkConfigError as error:
+            blynk = None
+            print(f"Blynk disabled: {error}")
+
     previous_state: State | None = None
 
     # The single source of truth for what the operator sees. Every serial
@@ -1751,7 +1796,10 @@ def main() -> int:
         "Serial: "
         f"{args.serial_port if args.serial_port else 'disabled'}"
     )
-    print("Blynk: not configured")
+    if blynk is not None and blynk.enabled:
+        print("Blynk: ONLINE (monitoring & notification only)")
+    else:
+        print("Blynk: disabled")
     print("Press Q or ESC in the video window to quit")
     print("=" * 68)
 
@@ -1972,6 +2020,25 @@ def main() -> int:
                 print(f"[LIFECYCLE STATE] {previous_state} -> {lc_status.state}")
                 print(f"[LIFECYCLE STATUS] acknowledged={lc_status.acknowledged}, safe_recovered={lc_status.safe_recovered}, incident_id={lc_status.incident_id}")
 
+            # Blynk Cloud bridge (monitoring/notification only). Build the
+            # reading from the physical GPIO mirror so the dashboard shows the
+            # red LED latched through ACKNOWLEDGED/SAFE_CLEAR_PENDING.
+            if blynk is not None and blynk.enabled:
+                green, red, buzzer = alarm_intent_to_gpio(lc_status.alarm)
+                reading = LifecycleReading(
+                    state=lc_status.state.value,
+                    incident_id=lc_status.incident_id,
+                    violation_ratio=lc_status.violation_ratio,
+                    link_online=serial_ok,
+                    incident_count=max(0, lifecycle.next_incident_id - 1),
+                    top_confidence=diagnostics.top_confidence,
+                    fps=measured_fps,
+                    green=green,
+                    red=red,
+                    buzzer=buzzer,
+                )
+                blynk.push_status(reading)
+
             # Recovery is only proven by the detector itself. Recording it
             # here, rather than in the key handler, is what stops an operator
             # from acknowledging and clearing an incident that was never
@@ -2050,6 +2117,11 @@ def main() -> int:
                 last_tx=last_tx,
                 last_rx=last_rx,
                 model_name=weights.name,
+                blynk_status=(
+                    "ONLINE"
+                    if blynk is not None and blynk.enabled
+                    else "DISABLED"
+                ),
             )
 
             if not args.headless:
@@ -2128,6 +2200,12 @@ def main() -> int:
         if serial_connection is not None:
             serial_connection.close()
             print("Serial connection closed")
+
+        # Flush any queued cloud telemetry before exit so the final state is
+        # not lost; close() is a no-op when the bridge was never created.
+        if blynk is not None:
+            blynk.close()
+            print("Blynk bridge closed")
 
     print("Application stopped safely")
 
