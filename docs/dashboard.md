@@ -219,6 +219,36 @@ Below 1080p the page is genuinely too tall to compress further, and it scrolls.
 That is deliberate: a clipped reset gate would be worse than a scroll bar. At
 1440x900 the page needs roughly 920 px against a ~709 px viewport.
 
+### The diagram is width-limited, not height-limited
+
+`LifecycleDiagram` draws into a view that receives roughly 446x140 px on the live
+tab, and `fitInView` scales the whole scene down to suit. For a long time the
+layout assumed the 140 px of height was what cost legibility and the grid was
+tuned by shrinking the boxes. That was backwards. The scene was **747 px wide**
+against **161 px tall**, so the scale came out at `min(446/747, 140/161) = 0.60`
+- width was binding, and about a third of the available height went unused.
+
+Three changes fixed it, and they are worth keeping in this order:
+
+1. **Three columns, not four.** Removing one column deletes `146 + 34` px of
+   width outright. Scale went 0.60 -> 0.79 for free.
+2. **Search for label clearance.** Edge labels were pinned to the 50% point of
+   their path. That is fine at wide gaps and a pile-up at narrow ones, because a
+   label is up to 34 px wide. `_add_edge_label` now walks the path and takes the
+   point with the most clearance, biased toward the middle.
+3. **Margin 14 -> 4.** Padding is charged twice: once inside the scene rect, then
+   again when everything is scaled down to fit it.
+
+At 1920x1080 the diagram now renders at **scale 1.000** - native size - against
+0.60 before. `test_diagram_labels_do_not_collide_with_nodes`,
+`test_diagram_edges_do_not_pass_through_nodes` and
+`test_diagram_fits_its_scene_with_minimal_padding` hold all three.
+
+One trap the three-column grid introduced: `RESET ACCEPTED` and `SAFE` share a
+column, so the shortest path between them runs straight through
+`SAFE CLEAR PENDING`. Any same-column edge that spans a row now detours sideways
+into a gap before descending.
+
 **Presentation mode (`P`)** goes fullscreen, scales the type up 1.35x and hides
 the analytics tab. It also hides the **tab bar**: with one page left a single tab
 is a dead control, and dropping it is what pays for the larger fonts so 1080p

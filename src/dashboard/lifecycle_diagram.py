@@ -75,27 +75,34 @@ STATE_TO_NODE: dict[OperatorState, Node] = {
     OperatorState.FAULT: Node.FAULT,
 }
 
-#: Node box size in scene units.
-NODE_WIDTH = 156.0
-NODE_HEIGHT = 36.0
+#: Node box size in scene units. The scene is drawn at whatever scale
+#: ``fitInView`` can afford, so these are not pixels: the smaller the scene, the
+#: larger the scale and the more readable the text. ``NODE_WIDTH`` is bounded
+#: from below by the longest node name ("SAFE CLEAR PENDING" at font 9), and the
+#: gaps only need to clear the edge labels and arrow heads.
+NODE_WIDTH = 146.0
+NODE_HEIGHT = 32.0
 
 #: Gaps between node boxes.
 H_GAP = 34.0
-V_GAP = 62.0
+V_GAP = 18.0
 
-#: Where each node sits, as (row, column). Row 1 runs right-to-left so the chain
-#: snakes, and ``RESET ACCEPTED`` can climb back to ``SAFE`` without a line
-#: crossing the whole drawing.
+#: Where each node sits, as (row, column). Three columns, not four: the live tab
+#: gives this view only ~446x140 px, so the scene's *width* is what limits the
+#: scale, not its height. A fourth column added 146+34 px of width the widget
+#: never had and cost ~25% of the rendered text size. Rows 1 and 2 run
+#: right-to-left so the chain snakes, and ``RESET ACCEPTED`` can climb back to
+#: ``SAFE`` without a line crossing the whole drawing.
 NODE_GRID: dict[Node, tuple[int, int]] = {
     Node.WAITING_FOR_TARGET: (0, 0),
     Node.SAFE: (0, 1),
     Node.VIOLATION_PENDING: (0, 2),
-    Node.ALARM_LATCHED: (0, 3),
-    Node.SAFE_CLEAR_PENDING: (1, 3),
-    Node.SAFE_RECOVERED: (1, 2),
-    Node.ACKNOWLEDGED: (1, 1),
-    Node.RESET_ACCEPTED: (1, 0),
-    Node.FAULT: (2, 0),
+    Node.ALARM_LATCHED: (1, 2),
+    Node.SAFE_CLEAR_PENDING: (1, 1),
+    Node.SAFE_RECOVERED: (1, 0),
+    Node.ACKNOWLEDGED: (2, 0),
+    Node.RESET_ACCEPTED: (2, 1),
+    Node.FAULT: (2, 2),
 }
 
 #: One short subtitle per node, shown under the name. The brief asks for one
@@ -128,12 +135,12 @@ NODE_LABELS: dict[Node, str] = {
 EDGES: tuple[tuple[Node, Node, str], ...] = (
     (Node.WAITING_FOR_TARGET, Node.SAFE, "target"),
     (Node.SAFE, Node.VIOLATION_PENDING, "violation"),
-    (Node.VIOLATION_PENDING, Node.ALARM_LATCHED, "confirmed"),
+    (Node.VIOLATION_PENDING, Node.ALARM_LATCHED, "confirm"),
     (Node.ALARM_LATCHED, Node.SAFE_CLEAR_PENDING, "goggles"),
     (Node.SAFE_CLEAR_PENDING, Node.SAFE_RECOVERED, "cleared"),
-    (Node.SAFE_RECOVERED, Node.ACKNOWLEDGED, "A / silence"),
-    (Node.ACKNOWLEDGED, Node.RESET_ACCEPTED, "R + gate"),
-    (Node.RESET_ACCEPTED, Node.SAFE, "rearmed"),
+    (Node.SAFE_RECOVERED, Node.ACKNOWLEDGED, "silence"),
+    (Node.ACKNOWLEDGED, Node.RESET_ACCEPTED, "gate"),
+    (Node.RESET_ACCEPTED, Node.SAFE, "armed"),
 )
 
 #: Nodes that can fall into FAULT. Every safety-critical stage, per the brief.
@@ -245,19 +252,19 @@ class DiagramNode(QGraphicsItem):
 
         painter.drawRoundedRect(box, 5.0, 5.0)
 
-        name_font = QFont(theme.FONT_FAMILY_QT, 8)
+        name_font = QFont(theme.FONT_FAMILY_QT, 9)
         name_font.setBold(True)
         painter.setFont(name_font)
         painter.setPen(
             QColor(theme.HEADER_WHITE if self._active else self._accent)
         )
         painter.drawText(
-            QRectF(box.left() + 4, box.top() + 3, box.width() - 8, box.height() / 2),
+            QRectF(box.left() + 3, box.top() + 2, box.width() - 6, box.height() / 2),
             Qt.AlignCenter,
             self._label,
         )
 
-        sub_font = QFont(theme.FONT_FAMILY_QT, 6)
+        sub_font = QFont(theme.FONT_FAMILY_QT, 7)
         painter.setFont(sub_font)
         sub_colour = QColor(
             theme.HEADER_WHITE if self._active else theme.TEXT_MUTED
@@ -267,9 +274,9 @@ class DiagramNode(QGraphicsItem):
         painter.setPen(sub_colour)
         painter.drawText(
             QRectF(
-                box.left() + 4,
+                box.left() + 3,
                 box.top() + box.height() / 2 - 3,
-                box.width() - 8,
+                box.width() - 6,
                 box.height() / 2,
             ),
             Qt.AlignCenter,
@@ -277,7 +284,7 @@ class DiagramNode(QGraphicsItem):
         )
 
         if self._blocked:
-            painter.setFont(QFont(theme.FONT_FAMILY_QT, 6))
+            painter.setFont(QFont(theme.FONT_FAMILY_QT, 7))
             painter.setPen(QColor(theme.RED))
             painter.drawText(
                 QRectF(box.left(), box.bottom() + 1, box.width(), 10),
@@ -303,8 +310,11 @@ class LifecycleDiagram(QGraphicsView):
     instead of blinking out the moment it lands.
     """
 
-    #: Scene padding around the node grid.
-    MARGIN = 14.0
+    #: Scene padding around the node grid. The view is height-bound inside the
+    #: live tab, so every pixel of padding here is charged twice: once in the
+    #: scene rect and again when ``fitInView`` shrinks everything to suit it.
+    #: 4 px is enough to keep arrow heads and the selection ring off the edge.
+    MARGIN = 4.0
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -317,7 +327,10 @@ class LifecycleDiagram(QGraphicsView):
         self.setBackgroundBrush(QBrush(QColor(0, 0, 0, 0)))
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setMinimumHeight(120)
+        # 140 is the tallest the diagram can be before the enclosing
+        # scroll area's layout stops converging and Qt recurses itself
+        # into a stack overflow on show(). Verified per resolution.
+        self.setMinimumHeight(140)
 
         self.nodes: dict[Node, DiagramNode] = {}
         self.current: Node | None = None
@@ -354,10 +367,43 @@ class LifecycleDiagram(QGraphicsView):
 
         path = QPainterPath(start)
 
+        source_row, source_col = NODE_GRID[source]
+        target_row, target_col = NODE_GRID[target]
+
+        # A same-column edge skips a row, so it cannot travel in a straight line:
+        # whatever sits between the two boxes is in the way. Step sideways into
+        # the gap beside the column, run down that gap, and come back in. The gap
+        # is half a H_GAP wide, so the detour reads as part of the flow.
         if abs(start.y() - end.y()) > 1.0:
-            # Elbow: travel horizontally to the target column, then vertically.
-            path.lineTo(QPointF(end.x(), start.y()))
-            path.lineTo(end)
+            if source_col == target_col and abs(source_row - target_row) > 1:
+                # Pick the side of the column that is clear. The outside gaps are
+                # always free; an inside gap runs along its neighbour column, so
+                # it is only usable when no box in that column spans the detour.
+                candidates = [
+                    start.x() - NODE_WIDTH / 2 - H_GAP / 2.0,
+                    start.x() + NODE_WIDTH / 2 + H_GAP / 2.0,
+                ]
+                low_y, high_y = sorted((start.y(), end.y()))
+                detour_x = next(
+                    (
+                        x
+                        for x in candidates
+                        if not any(
+                            _centre(row, col).y() + NODE_HEIGHT / 2 > low_y
+                            and _centre(row, col).y() - NODE_HEIGHT / 2 < high_y
+                            and abs(_centre(row, col).x() - x) < NODE_WIDTH / 2 + 1.0
+                            for row, col in NODE_GRID.values()
+                        )
+                    ),
+                    candidates[0],
+                )
+                path.lineTo(QPointF(detour_x, start.y()))
+                path.lineTo(QPointF(detour_x, end.y()))
+                path.lineTo(end)
+            else:
+                # Elbow: travel horizontally to the target column, then vertically.
+                path.lineTo(QPointF(end.x(), start.y()))
+                path.lineTo(end)
         else:
             path.lineTo(end)
 
@@ -436,75 +482,120 @@ class LifecycleDiagram(QGraphicsView):
         head.setToolTip("")
 
     def _add_edge_label(self, path: QPainterPath, label: str) -> None:
-        midpoint = path.pointAtPercent(0.5)
+        """Place the label on the path where it hits nothing.
+
+        Drawing every label at the 50% point looks tidy but collides with node
+        boxes as soon as the gaps are tight: an edge label is up to 34 px wide and
+        the boxes are only a gap apart. So walk the path and take the candidate
+        with the most clearance, preferring points near the middle so the result
+        still reads as attached to its own edge.
+        """
 
         text = self._scene.addSimpleText(label)
         text.setBrush(QBrush(QColor(theme.TEXT_MUTED)))
-        text.setFont(QFont(theme.FONT_FAMILY_QT, 6))
+        text.setFont(QFont(theme.FONT_FAMILY_QT, 7))
         text.setAcceptedMouseButtons(Qt.NoButton)
 
         bounds = text.boundingRect()
-        text.setPos(midpoint.x() - bounds.width() / 2, midpoint.y() - bounds.height())
+        width, height = bounds.width(), bounds.height()
+        obstacles = [
+            item.sceneBoundingRect()
+            for item in self.nodes.values()
+            if item.isVisible()
+        ]
+
+        best: tuple[float, QPointF] | None = None
+
+        for step in range(6, 95):
+            fraction = step / 100.0
+            point = path.pointAtPercent(fraction)
+            box = QRectF(point.x() - width / 2, point.y() - height, width, height)
+
+            if any(box.intersects(rect) for rect in obstacles):
+                continue
+
+            clearance = min(
+                min(
+                    abs(box.left() - rect.right()),
+                    abs(rect.left() - box.right()),
+                    abs(box.top() - rect.bottom()),
+                    abs(rect.top() - box.bottom()),
+                )
+                for rect in obstacles
+            ) if obstacles else 0.0
+
+            score = clearance - abs(fraction - 0.5) * 24.0
+
+            if best is None or score > best[0]:
+                best = (score, point)
+
+        anchor = best[1] if best is not None else path.pointAtPercent(0.5)
+        text.setPos(anchor.x() - width / 2, anchor.y() - height)
 
     def _add_fault_branch(self) -> None:
         """Dashed drops from every safety-critical node into the FAULT node.
 
-        One shared bus rather than five separate arrows: five dashed diagonals
+        One shared spine rather than five separate arrows: five dashed diagonals
         would cross the whole diagram and read as noise, and the meaning ("any of
         these can fault") is carried by the shared line just as well.
+
+        FAULT sits in the bottom-right corner, so a vertical channel on the right
+        of the grid collects every feed. Each source first steps down into the
+        empty lane between its own row and the next, then runs right along that
+        lane -- the one horizontal corridor guaranteed to be free of boxes.
         """
 
         fault_centre = _centre(*NODE_GRID[Node.FAULT])
-        bus_y = fault_centre.y() - NODE_HEIGHT / 2 - 14.0
 
-        xs: list[float] = []
+        right_edge = max(
+            _centre(row, column).x() + NODE_WIDTH / 2
+            for row, column in NODE_GRID.values()
+        )
+        channel_x = right_edge + H_GAP / 2.0
+        lane_offset = NODE_HEIGHT / 2 + V_GAP / 2.0
+
+        lane_ys: list[float] = []
 
         for node in FAULT_SOURCES:
             centre = _centre(*NODE_GRID[node])
-            bottom = centre.y() + NODE_HEIGHT / 2
-            xs.append(centre.x())
+            lane_y = centre.y() + lane_offset
+            lane_ys.append(lane_y)
 
-            drop = QPainterPath(QPointF(centre.x(), bottom))
-            drop.lineTo(QPointF(centre.x(), bus_y))
+            route = QPainterPath(QPointF(centre.x(), centre.y() + NODE_HEIGHT / 2))
+            route.lineTo(QPointF(centre.x(), lane_y))
+            route.lineTo(QPointF(channel_x, lane_y))
 
-            item = QGraphicsPathItem(drop)
+            item = QGraphicsPathItem(route)
             item.setPen(QPen(QColor(theme.MAGENTA_DIM), 1.0, Qt.DashLine))
             item.setToolTip("FAULT: any safety subsystem becomes untrusted")
             item.setAcceptedMouseButtons(Qt.NoButton)
             self._scene.addItem(item)
 
-        if not xs:
+        if not lane_ys:
             return
 
-        low = min(xs + [fault_centre.x()])
-        high = max(xs + [fault_centre.x()])
+        spine = QPainterPath(QPointF(channel_x, min(lane_ys)))
+        spine.lineTo(QPointF(channel_x, fault_centre.y()))
+        spine.lineTo(QPointF(fault_centre.x() + NODE_WIDTH / 2, fault_centre.y()))
 
-        bus = QPainterPath(QPointF(low, bus_y))
-        bus.lineTo(QPointF(high, bus_y))
-
-        bus_item = QGraphicsPathItem(bus)
-        bus_item.setPen(QPen(QColor(theme.MAGENTA_DIM), 1.0, Qt.DashLine))
-        bus_item.setAcceptedMouseButtons(Qt.NoButton)
-        self._scene.addItem(bus_item)
-
-        stem = QPainterPath(QPointF(fault_centre.x(), bus_y))
-        stem.lineTo(QPointF(fault_centre.x(), fault_centre.y() - NODE_HEIGHT / 2))
-
-        stem_item = QGraphicsPathItem(stem)
-        stem_item.setPen(QPen(QColor(theme.MAGENTA_DIM), 1.0, Qt.DashLine))
-        stem_item.setAcceptedMouseButtons(Qt.NoButton)
-        self._scene.addItem(stem_item)
+        spine_item = QGraphicsPathItem(spine)
+        spine_item.setPen(QPen(QColor(theme.MAGENTA_DIM), 1.0, Qt.DashLine))
+        spine_item.setAcceptedMouseButtons(Qt.NoButton)
+        self._scene.addItem(spine_item)
 
         self._add_arrow_head(
-            QPointF(fault_centre.x(), fault_centre.y() - NODE_HEIGHT / 2), stem
+            QPointF(fault_centre.x() + NODE_WIDTH / 2, fault_centre.y()), spine
         )
 
         note = self._scene.addSimpleText("any subsystem untrusted")
         note.setBrush(QBrush(QColor(theme.MAGENTA)))
-        note.setFont(QFont(theme.FONT_FAMILY_QT, 6))
+        note.setFont(QFont(theme.FONT_FAMILY_QT, 7))
         note.setAcceptedMouseButtons(Qt.NoButton)
         bounds = note.boundingRect()
-        note.setPos(high + 6.0, bus_y - bounds.height() / 2)
+        note.setPos(
+            fault_centre.x() - bounds.width() / 2,
+            fault_centre.y() - NODE_HEIGHT / 2 - bounds.height() - 3.0,
+        )
 
     # -- updates ------------------------------------------------------------
 

@@ -15,7 +15,7 @@ import pytest
 
 from src.dashboard import theme
 from src.dashboard.camera_panel import CameraPanel
-from src.dashboard.charts_panel import ChartsPanel
+from src.dashboard.charts_panel import ChartsPanel, SeriesPlot
 from src.dashboard.control_panel import ControlPanel
 from src.dashboard.event_timeline import EventTimeline
 from src.dashboard.health_panel import HealthPanel
@@ -414,6 +414,103 @@ def test_charts_panel_can_be_cleared(qapp):
     panel.clear()
 
     panel.show()
+
+
+#: Kept alive so the child plot outlives the helper that created it.
+_CONFIDENCE_PANELS: list[ChartsPanel] = []
+
+
+def _confidence_plot() -> SeriesPlot:
+    panel = ChartsPanel()
+    _CONFIDENCE_PANELS.append(panel)
+    return panel.confidence_plot
+
+
+def test_confidence_plot_holds_a_gap_for_an_absent_class(qapp):
+    """A frame with no ``no_goggles`` box must record a gap, not a ``0.0``.
+
+    Deriving the per-class series from the *unfiltered* scores is what makes the
+    green and red lines move independently; substituting the peak for a missing
+    class painted green on top of cyan and pinned red to the axis, so the chart
+    looked like a single flat line.
+    """
+
+    plot = _confidence_plot()
+
+    plot.push({"goggles": 0.72, "no_goggles": None, "peak": 0.72})
+
+    assert plot.latest("goggles") == pytest.approx(0.72)
+    assert plot.latest("no_goggles") is None
+    assert plot.latest("peak") == pytest.approx(0.72)
+
+
+def test_confidence_plot_keeps_both_classes_distinct(qapp):
+    """Each sample appends one point per series, so the lines stay aligned."""
+
+    plot = _confidence_plot()
+
+    plot.push({"goggles": None, "no_goggles": 0.81, "peak": 0.81})
+    plot.push({"goggles": 0.44, "no_goggles": None, "peak": 0.81})
+    plot.push({"goggles": 0.91, "no_goggles": 0.12, "peak": 0.91})
+
+    assert plot.sample_count == 3
+    assert plot.latest("goggles") == pytest.approx(0.91)
+    assert plot.latest("no_goggles") == pytest.approx(0.12)
+    assert plot.latest("peak") == pytest.approx(0.91)
+
+
+def test_confidence_plot_marks_a_missing_class_as_no_sample(qapp):
+    """No value at all is still a gap; only an explicit number is a sample."""
+
+    plot = _confidence_plot()
+
+    plot.push({"goggles": 0.5, "no_goggles": 0.4, "peak": 0.5})
+    plot.push({"peak": 0.6})
+
+    assert plot.sample_count == 2
+    assert plot.latest("goggles") is None
+    assert plot.latest("no_goggles") is None
+
+
+def test_confidence_plot_paints_with_gaps_present(qapp):
+    """Exercises the lift-the-pen path; a ``None`` must not raise."""
+
+    plot = _confidence_plot()
+    plot.resize(360, 140)
+
+    for index in range(30):
+        plot.push(
+            {
+                "goggles": None if index % 3 else 0.5 + index / 100,
+                "no_goggles": None if index % 2 else 0.3 + index / 100,
+                "peak": 0.5 + index / 100,
+            }
+        )
+
+    plot.show()
+    plot.repaint()
+
+    assert plot.sample_count == 30
+
+
+def test_push_telemetry_leaves_an_absent_class_absent(qapp):
+    """``push_telemetry`` must forward ``None`` rather than defaulting to a
+    number, otherwise the gap is silently lost at the caller boundary."""
+
+    panel = ChartsPanel()
+
+    panel.push_telemetry(
+        fps=30.0,
+        inference_ms=12.0,
+        frame_age_ms=20.0,
+        max_confidence=0.77,
+        goggles_confidence=0.77,
+        no_goggles_confidence=None,
+    )
+
+    assert panel.confidence_plot.latest("goggles") == pytest.approx(0.77)
+    assert panel.confidence_plot.latest("no_goggles") is None
+    assert panel.confidence_plot.latest("peak") == pytest.approx(0.77)
 
 
 # -- SignalFlowWidget ---------------------------------------------------

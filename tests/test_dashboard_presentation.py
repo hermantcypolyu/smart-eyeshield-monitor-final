@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QScrollArea
 
 from src.dashboard import branding, theme
 from src.dashboard.event_timeline import EventTimeline, is_meaningful
-from src.dashboard.lifecycle_diagram import STATE_TO_NODE, LifecycleDiagram, Node
+from src.dashboard.lifecycle_diagram import EDGES, STATE_TO_NODE, LifecycleDiagram, Node
 from src.dashboard.signal_flow import STAGES, SignalFlowWidget, first_broken
 from src.dashboard.state_models import TimelineEntry
 from src.dashboard.widgets import Chip, EmptyState
@@ -410,6 +410,76 @@ def test_diagram_has_bounded_height(qapp):
     assert diagram.minimumHeight() <= 140
 
 
+def test_diagram_labels_do_not_collide_with_nodes(qapp):
+    """Edge labels must be legible, so none may sit on top of a node box.
+
+    Labels used to be pinned to the 50% point of their edge, which is fine while
+    the gaps are wide and a pile-up the moment they are not. With three columns
+    the gaps are narrow enough that midpoint placement put a label over a box, so
+    placement now searches for clearance. This is the assertion that keeps it
+    searching.
+    """
+
+    diagram = LifecycleDiagram()
+    boxes = {
+        node: item.sceneBoundingRect().adjusted(1, 1, -1, -1)
+        for node, item in diagram.nodes.items()
+    }
+
+    placed = [
+        item
+        for item in diagram.scene().items()
+        if type(item).__name__ == "QGraphicsSimpleTextItem"
+        and item.text() in {label for _, _, label in EDGES}
+    ]
+
+    assert placed, "expected edge labels in the scene"
+
+    for item in placed:
+        box = item.sceneBoundingRect()
+        assert not [
+            node.name for node, rect in boxes.items() if box.intersects(rect)
+        ], f"edge label {item.text()!r} overlaps a node"
+
+
+def test_diagram_edges_do_not_pass_through_nodes(qapp):
+    """No transition line may run behind a state it is not connected to.
+
+    RESET ACCEPTED and SAFE share a column, so the direct path between them used
+    to go straight through SAFE CLEAR PENDING. Any same-column edge that spans a
+    row must detour through a gap instead.
+    """
+
+    diagram = LifecycleDiagram()
+    boxes = {
+        node: item.sceneBoundingRect().adjusted(2, 2, -2, -2)
+        for node, item in diagram.nodes.items()
+    }
+
+    for edge in diagram._edges:
+        path = edge.item.path()
+        for step in range(5, 96):
+            point = path.pointAtPercent(step / 100.0)
+            crossed = [node.name for node, rect in boxes.items() if rect.contains(point)]
+            assert not crossed, f"{edge.source.value} -> {edge.target.value} crosses {crossed}"
+
+
+def test_diagram_fits_its_scene_with_minimal_padding(qapp):
+    """Padding is charged twice, so it must stay small.
+
+    The live tab is height-bound: the scene rect is scaled to fit ~140 px, so
+    every pixel of margin either side of the grid shrinks the text. Fourteen
+    pixels of margin on a 132 px grid cost about 10% of the type size.
+    """
+
+    diagram = LifecycleDiagram()
+    content = diagram.scene().itemsBoundingRect()
+    scene = diagram.scene().sceneRect()
+
+    assert scene.width() <= content.width() + 2 * 8
+    assert scene.height() <= content.height() + 2 * 8
+
+
 # -- timeline filtering ------------------------------------------------------
 
 
@@ -557,11 +627,23 @@ def test_evidence_tab_shows_the_same_camera_feed(qapp, window):
     assert type(window.evidence_camera) is type(window.camera_panel)
 
 
-def test_placeholder_logo_is_light_not_a_dark_block(qapp):
+def _missing_logo(label: str) -> branding.LogoSpec:
+    """A spec whose PNG is deliberately absent, so the fallback path is
+    exercised regardless of whether the real assets are checked out."""
+
+    return branding.LogoSpec(
+        path=branding.BRANDING_DIR / f"__absent_{label.lower()}__.png",
+        label=label,
+        height=42,
+    )
+
+
+@pytest.mark.parametrize("label", ["POLYU", "EIE"])
+def test_placeholder_logo_is_light_not_a_dark_block(qapp, label):
     """The old placeholder was a dark filled box with a dashed border, which
     looked broken next to the white PolyU header."""
 
-    spec = branding.EIE
+    spec = _missing_logo(label)
 
     assert not branding.logo_available(spec)
 
@@ -573,6 +655,21 @@ def test_placeholder_logo_is_light_not_a_dark_block(qapp):
     assert abs(image.width() / image.height() - branding.logo_aspect(spec)) < 0.05
 
 
-def test_logo_aspect_falls_back_to_the_placeholder_ratio():
-    assert branding.logo_aspect(branding.EIE) == 2.4
-    assert branding.logo_aspect(branding.POLYU) == 2.4
+@pytest.mark.parametrize("label", ["POLYU", "EIE"])
+def test_logo_aspect_falls_back_to_the_placeholder_ratio(label):
+    assert branding.logo_aspect(_missing_logo(label)) == 2.4
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [(branding.POLYU, 5.22), (branding.EIE, 4.27)],
+    ids=["polyu", "eie"],
+)
+def test_real_logos_report_their_true_aspect_ratio(spec, expected):
+    """The header reserves space using ``logo_aspect``; a wrong ratio would
+    letterbox or clip the real artwork."""
+
+    if not branding.logo_available(spec):
+        pytest.skip(f"{spec.path.name} not present in this checkout")
+
+    assert branding.logo_aspect(spec) == pytest.approx(expected, abs=0.02)

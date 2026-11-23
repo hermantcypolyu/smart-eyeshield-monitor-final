@@ -49,6 +49,12 @@ class FrameResult:
     detections: tuple[tuple[str, float, int, int, int, int], ...]
     fps: float
     inference_ms: float
+    #: Best raw score per class *before* the per-class threshold was applied.
+    #: ``detections`` is what survived, which is the right input for the
+    #: lifecycle but the wrong input for a confidence chart: a class sitting just
+    #: under its threshold would otherwise report nothing at all, and "nothing"
+    #: reads as a flat line. Defaulted so existing constructors keep working.
+    class_scores: tuple[tuple[str, float], ...] = ()
 
 
 class CameraInferenceWorker(QObject):
@@ -169,6 +175,7 @@ class CameraInferenceWorker(QObject):
 
                 accepted: list[tuple[str, float]] = []
                 boxes: list[tuple[str, float, int, int, int, int]] = []
+                seen_scores: dict[str, float] = {}
 
                 if results:
                     names = results[0].names or {}
@@ -177,6 +184,9 @@ class CameraInferenceWorker(QObject):
                         cls_index = int(box.cls.item())
                         name = str(names.get(cls_index, cls_index))
                         score = float(box.conf.item())
+
+                        if score > seen_scores.get(name, 0.0):
+                            seen_scores[name] = score
 
                         threshold = (
                             self.goggles_confidence
@@ -217,6 +227,7 @@ class CameraInferenceWorker(QObject):
                         detections=tuple(boxes),
                         fps=(1.0 / elapsed) if elapsed > 0 else 0.0,
                         inference_ms=inference_ms,
+                        class_scores=tuple(sorted(seen_scores.items())),
                     )
                 )
 

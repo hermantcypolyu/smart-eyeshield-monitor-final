@@ -71,7 +71,10 @@ class SeriesPlot(QWidget):
         self._unit = unit
         self._threshold = threshold
         self._threshold_label = threshold_label
-        self._data: dict[str, deque[float]] = {
+        # ``None`` is a gap: a frame where the class was absent. It is not
+        # the same thing as a confidence of zero, and must not be drawn as
+        # one.
+        self._data: dict[str, deque[float | None]] = {
             name: deque(maxlen=HISTORY) for name, _ in series
         }
 
@@ -81,14 +84,29 @@ class SeriesPlot(QWidget):
 
         return max((len(queue) for queue in self._data.values()), default=0)
 
+    def latest(self, name: str) -> float | None:
+        """Newest sample for one series, or ``None`` if it was absent."""
+
+        queue = self._data.get(name)
+        return queue[-1] if queue else None
+
     @property
     def empty_text(self) -> str:
         return "NO TELEMETRY SAMPLES YET"
 
-    def push(self, values: dict[str, float]) -> None:
+    def push(self, values: dict[str, float | None]) -> None:
+        """Append one sample per series.
+
+        A missing key, or an explicit ``None``, records a gap rather than a
+        zero. The distinction matters: "this frame contained no no_goggles box"
+        is not "no_goggles scored 0.0", and drawing the second when you mean the
+        first is how a chart ends up showing a line along the axis forever.
+        """
+
         for name, _ in self._series:
-            if name in values:
-                self._data[name].append(float(values[name]))
+            self._data[name].append(
+                None if values.get(name) is None else float(values[name])
+            )
         self.update()
 
     def clear(self) -> None:
@@ -170,8 +188,8 @@ class SeriesPlot(QWidget):
         y = outer.top() + 13
 
         for name, colour in self._series:
-            queue = self._data[name]
-            text = f"{name} {queue[-1]:.2f}" if queue else f"{name} --"
+            value = self.latest(name)
+            text = f"{name} {value:.2f}" if value is not None else f"{name} --"
 
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(colour))
@@ -245,27 +263,42 @@ class SeriesPlot(QWidget):
             offset = plot.width() - step * (len(queue) - 1)
 
             path = QPainterPath()
-            last = QPointF(plot.left(), plot.bottom())
+            last: QPointF | None = None
+            pen_down = False
 
             for index, value in enumerate(queue):
                 x = plot.left() + offset + index * step
+
+                if value is None:
+                    # Absent class: lift the pen so the gap is a visible break
+                    # rather than a slide down to zero.
+                    pen_down = False
+                    continue
+
                 ratio = 0.0 if upper <= 0 else min(1.0, max(0.0, value / upper))
                 point = QPointF(x, plot.bottom() - ratio * plot.height())
                 last = point
 
-                if index == 0:
-                    path.moveTo(point)
-                else:
+                if pen_down:
                     path.lineTo(point)
+                else:
+                    path.moveTo(point)
+                    pen_down = True
 
-            painter.setPen(QPen(QColor(colour), 1.6))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawPath(path)
+            if path.elementCount():
+                # ``peak`` is dashed: it equals the winning class by definition,
+                # so a solid line would hide underneath the very line it
+                # summarises.
+                style = Qt.DashLine if name == "peak" else Qt.SolidLine
+                painter.setPen(QPen(QColor(colour), 1.6, style))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(path)
 
             # Current marker: the one coordinate the operator actually wants.
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(colour))
-            painter.drawEllipse(last, 2.6, 2.6)
+            if last is not None:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(colour))
+                painter.drawEllipse(last, 2.6, 2.6)
 
     def _draw_window_label(self, painter: QPainter, outer: QRectF) -> None:
         font = QFont(theme.FONT_FAMILY_QT, 7)
@@ -281,7 +314,12 @@ class SeriesPlot(QWidget):
         if self._maximum > 0:
             return self._maximum
 
-        observed = [value for queue in self._data.values() for value in queue]
+        observed = [
+            value
+            for queue in self._data.values()
+            for value in queue
+            if value is not None
+        ]
         peak = max(observed) if observed else 0.0
         return max(self._minimum, peak * 1.15, 1.0)
 
@@ -625,9 +663,9 @@ class ChartsPanel(Card):
         self.confidence_plot = SeriesPlot(
             "Detection confidence",
             (
+                ("peak", theme.CYAN),
                 ("goggles", theme.GREEN),
                 ("no_goggles", theme.RED),
-                ("peak", theme.CYAN),
             ),
             minimum=1.0,
             maximum=1.0,
@@ -676,16 +714,22 @@ class ChartsPanel(Card):
         goggles_confidence: float | None = None,
         no_goggles_confidence: float | None = None,
     ) -> None:
+        """Record one frame's telemetry.
+
+        ``max_confidence`` is the overall peak and is drawn as its own series.
+        The two per-class values are *not* derived from it: when a class was
+        absent they arrive as ``None`` and stay ``None``, so the chart shows a
+        gap. Substituting the peak for a missing class used to paint the green
+        ``goggles`` line on top of the cyan ``peak`` line and pin the red
+        ``no_goggles`` line to the axis, which made both classes look flat.
+        """
+
         self.performance_plot.push({"fps": fps})
         self.latency_plot.push({"inference": inference_ms, "frame_age": frame_age_ms})
         self.confidence_plot.push(
             {
-                "goggles": max_confidence
-                if goggles_confidence is None
-                else goggles_confidence,
-                "no_goggles": 0.0
-                if no_goggles_confidence is None
-                else no_goggles_confidence,
+                "goggles": goggles_confidence,
+                "no_goggles": no_goggles_confidence,
                 "peak": max_confidence,
             }
         )

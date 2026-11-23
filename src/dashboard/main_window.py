@@ -809,14 +809,16 @@ class MainWindow(QMainWindow):
 
         peak = max((box[1] for box in frame.detections), default=0.0)
 
-        # Per-class peaks come from the detections themselves rather than from a
-        # model-internal value: the worker only reports what it actually saw, and
-        # a label with no detection must read as no evidence, not as zero
-        # confidence. None keeps that distinction on the chart.
+        # Per-class peaks come from what the model actually produced, before the
+        # per-class thresholds were applied. Reading them from ``detections``
+        # instead would hide every class sitting in the band between the
+        # candidate threshold and its own one - which is exactly the band the
+        # operator needs to see when tuning. A class with no box at all stays
+        # ``None`` so the chart shows a gap rather than a fake zero.
         goggles_conf: float | None = None
         no_goggles_conf: float | None = None
 
-        for label, confidence, *_rest in frame.detections:
+        for label, confidence in frame.class_scores or frame.detections:
             name = str(label).strip().lower()
 
             if name in {"goggles", "with_goggles", "safe", "helmet"}:
