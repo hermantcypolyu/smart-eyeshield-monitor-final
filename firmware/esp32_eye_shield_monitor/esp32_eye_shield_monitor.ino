@@ -73,6 +73,20 @@ namespace reply = eye_shield::reply;
 #endif
 
 /* ===========================================================================
+ * I2C status panel (advisory only)
+ *
+ * Included AFTER the config chain above, because oled_display.h needs the
+ * OLED_* macros and deliberately does not include a config file itself. The
+ * panel mirrors state the incident core has already decided; it cannot drive a
+ * pin, clear a latch or gate a transition. If it is missing or fails, the
+ * sketch warns once and carries on unchanged.
+ * =========================================================================== */
+
+#if OLED_ENABLED
+#  include "oled_display.h"
+#endif
+
+/* ===========================================================================
  * Output abstraction
  *
  * Every pin write goes through writeActiveLevel() so polarity is applied in
@@ -88,6 +102,12 @@ static bool g_buzzer_on = false;
 /* The single authority on incident state. Declared here rather than next to its
  * command handlers because STATUS and the pin helpers below need to read it. */
 static IncidentCore g_core(HEARTBEAT_TIMEOUT_MS);
+
+#if OLED_ENABLED
+/* One panel instance for the whole run. Construction is trivial (no bus
+ * traffic); begin() is called from setup() once the outputs are parked OFF. */
+static eye_shield::OledDisplay g_oled;
+#endif
 
 static inline void writeActiveLevel(uint8_t pin, bool active_high, bool on) {
   digitalWrite(pin, (on == active_high) ? HIGH : LOW);
@@ -357,6 +377,21 @@ static void printStatus() {
   }
   Serial.print(F("uptime_ms       : "));
   Serial.println(millis());
+#if OLED_ENABLED
+  /* Reported here so a laptop can tell whether the panel actually came up.
+   * "ABSENT" is informational, never an error: the display is advisory and its
+   * loss must not change any lifecycle behaviour. */
+  Serial.print(F("oled            : "));
+  Serial.print(g_oled.statusText());
+  Serial.print(F("  "));
+  Serial.print(OLED_WIDTH);
+  Serial.print('x');
+  Serial.print(OLED_HEIGHT);
+  Serial.print(F(" i2c sda=GPIO"));
+  Serial.print(OLED_SDA_PIN);
+  Serial.print(F(" scl=GPIO"));
+  Serial.println(OLED_SCL_PIN);
+#endif
   Serial.println(F("----------------------------------------"));
 
   /* Machine-readable line last, so a laptop parser can find exactly one
@@ -594,6 +629,16 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   allOutputsOff();
 
+#if OLED_ENABLED
+  /* Initialise the advisory status panel AFTER the outputs are parked, so the
+   * boot screen cannot appear before the safety pins are in a known state. A
+   * failure here is reported once and then ignored: the display is not part of
+   * the safety path. */
+  if (!g_oled.begin(millis())) {
+    Serial.println(F("WARN oled        : no panel at 0x3C/0x3D, continuing without display"));
+  }
+#endif
+
   Serial.println();
   Serial.println(F("=============================================================="));
   Serial.println(F(" ESP32-S3 EYE-SHIELD MONITOR - PHASE 2A HARDWARE BRING-UP"));
@@ -695,5 +740,25 @@ void loop() {
    * poll above never stalls behind a cosmetic light. */
   writeActiveLevel(YELLOW_LED_PIN, YELLOW_LED_ACTIVE_HIGH,
                    g_core.yellowLevel(millis()));
+#endif
+
+#if OLED_ENABLED
+  /* Advisory panel refresh. Self-rate-limiting: it returns immediately unless
+   * the drawn content changed or OLED_REFRESH_MS elapsed, so the common case
+   * costs one struct comparison.
+   *
+   * The output flags come from g_green_on/g_red_on/g_buzzer_on - the LOGICAL
+   * state of the pins - not from g_core.outputs(). During a manual self-test
+   * the two deliberately differ, and the panel must show what the lamps are
+   * actually doing. */
+  {
+    const uint32_t now = millis();
+    CoreOutputs actual;
+    actual.green = g_green_on;
+    actual.red = g_red_on;
+    actual.buzzer = g_buzzer_on;
+    g_oled.update(eye_shield::buildOledStatus(g_core, actual, g_core.link_alive(now)),
+                  now);
+  }
 #endif
 }

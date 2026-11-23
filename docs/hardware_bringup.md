@@ -30,6 +30,24 @@ reported; it is non-actuating and does not affect acceptance (§9.5).
 | `SELF_TEST` verified | **yes** — 8/8 steps, ends with all outputs OFF |
 | `STOP_TEST` verified | **yes** — interrupt mid-sequence, immediate silence |
 
+### I2C OLED status panel — ASSUMED
+
+An optional SSD1306 128x64 panel on SDA **GPIO8** / SCL **GPIO9** (3.3 V) was
+added to mirror the lifecycle on the bench. **It has not been built or observed.**
+Its behaviour is covered by host tests only; the wiring in §2.2a is ASSUMED.
+
+| Evidence | Status |
+|---|---|
+| Driver and display model written | **yes** |
+| Compiles with `OLED_ENABLED 1` | **yes** — 352,058 B (26%) flash, 23,840 B (7%) RAM |
+| Host tests for the display model | **yes** — `tests/test_oled_status_model.py` |
+| Panel physically wired | **no — not attempted** |
+| Panel observed lit | **no — not attempted** |
+| Missing-panel fallback observed | **no — not attempted** |
+
+Do not describe the display as working until §9 records it. Until then the
+advisory panel is a code-complete, hardware-unverified feature.
+
 Phase 2A has no outstanding items. Section 9 records exactly what was observed,
 and §9.5 states the acceptance table.
 
@@ -168,6 +186,24 @@ level shifter, external 5 V supply or transistor driver is used anywhere.
 
 **Do not connect module VCC to a GPIO.** VCC goes to a supply rail only.
 
+### 2.2a I2C OLED status panel — ASSUMED, not yet verified
+
+| From | To | Notes |
+|---|---|---|
+| OLED **SDA** | ESP32-S3 **GPIO8** | 400 kHz |
+| OLED **SCL** | ESP32-S3 **GPIO9** | |
+| OLED **VCC** | ESP32-S3 **3V3** | **3.3 V only. Do not use 5 V.** |
+| OLED **GND** | ESP32-S3 **GND** | common ground |
+
+**Status: ASSUMED.** This is the requested configuration. Unlike §2.2 it has not
+been built, measured or observed. The panel is optional: with it unplugged the
+firmware prints `WARN oled` once and runs normally, so nothing else in this
+document depends on it.
+
+Address is auto-detected (0x3C or 0x3D). Confirm the panel with `STATUS`, which
+reports `oled : ONLINE @0x3C` or `ABSENT (retrying)`. Record what you actually
+observe in §9 — until then this row stays ASSUMED.
+
 ### 2.3 Wiring table — bare LEDs (if you are not using a module)
 
 **A series resistor is mandatory**; connecting an LED directly to a GPIO can
@@ -245,16 +281,30 @@ Record the port you found in §9.
 
 ## 4. Required Arduino libraries
 
-**None.** The sketch uses only what ships with the `esp32` core.
+**None for the core firmware.** The sketch uses only what ships with the `esp32`
+core.
 
 | Library | Provided by | Used for |
 |---|---|---|
 | `Arduino.h` | `esp32` core | `Serial`, `pinMode`, `digitalWrite`, `millis` |
 | LEDC API (`ledcAttach`/`ledcWrite`/`ledcDetach`) | `esp32` core | passive buzzer square wave |
+| `Wire.h` | `esp32` core | I2C bus for the optional OLED |
 
-No `Tone.h`, no `ESP32Servo`, no Blynk, no external library. If the IDE offers to
-install a library for `Arduino.h`, decline — it means the board is not set to an
-ESP32 target.
+**Optional, and only when `OLED_ENABLED 1`:** the I2C status panel needs two
+libraries that do **not** ship with the core. Verified installed versions:
+
+| Library | Version | Installed via |
+|---|---|---|
+| `Adafruit SSD1306` | 2.5.17 | Library Manager |
+| `Adafruit GFX Library` | 1.13.0 | pulled in as a dependency |
+| `Adafruit BusIO` | 1.17.4 | pulled in as a dependency |
+
+With `OLED_ENABLED 0` none of them are referenced and the build needs nothing
+beyond the core, so the earlier "no external library" claim still holds for the
+baseline build.
+
+No `Tone.h`, no `ESP32Servo`, no Blynk. If the IDE offers to install a library
+for `Arduino.h`, decline — it means the board is not set to an ESP32 target.
 
 ---
 
@@ -324,6 +374,18 @@ Global variables use 22176 bytes (6%) of dynamic memory, leaving 305504 bytes fo
 No warnings at `--warnings all`. The other configuration branch (passive buzzer,
 `BUZZER_IS_PASSIVE 1`) was also compiled to prove the code path still builds:
 316,337 B (24%) flash, 22,296 B (6%) RAM, also warning-free.
+
+The same command with the advisory I2C panel enabled (`OLED_ENABLED 1`, the
+current default) on the same toolchain and FQBN:
+
+```
+Sketch uses 352058 bytes (26%) of program storage space. Maximum is 1310720 bytes.
+Global variables use 23840 bytes (7%) of dynamic memory, leaving 303840 bytes for local variables. Maximum is 327680 bytes.
+```
+
+**Zero warnings** at `--warnings all`. Delta over the baseline above is
++38,692 B flash and +1,624 B RAM. Setting `OLED_ENABLED 0` returns the build to
+the 313,366 B / 22,216 B figure; nothing else depends on the panel.
 
 ---
 

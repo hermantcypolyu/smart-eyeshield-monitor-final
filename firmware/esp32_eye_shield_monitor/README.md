@@ -46,7 +46,10 @@ decides and holds. Phase 2A only proves that the outputs can be driven at all.
 | File | Committed | Purpose |
 |---|---|---|
 | `esp32_eye_shield_monitor.ino` | yes | Self-test firmware |
-| `config.example.h` | yes | Pin, polarity, buzzer and baud defaults. No secrets. |
+| `config.example.h` | yes | Pin, polarity, buzzer, baud and OLED defaults. No secrets. |
+| `incident_core.h` | yes | Pure C++ lifecycle rules (no Arduino). Host-tested. |
+| `oled_status_model.h` | yes | Pure C++: what the OLED should say. Host-tested. |
+| `oled_display.h` | yes | SSD1306 renderer. The only file that touches `Wire`. |
 | `README.md` | yes | This file |
 | `config.h` | **no — git-ignored** | Machine-specific overrides. Never commit. |
 | `build/` | **no — git-ignored** | Compiler output |
@@ -200,6 +203,72 @@ Verified locally with Arduino CLI 1.5.1 and Arduino-ESP32 core **3.3.11**:
 Result with the verified configuration (`BUZZER_IS_PASSIVE 0`, buzzer active-low):
 **compiles clean, no warnings**, 308,594 bytes (23%) of program storage,
 22,176 bytes (6%) of dynamic memory.
+
+### With the I2C status panel enabled (`OLED_ENABLED 1`)
+
+Measured on the same toolchain and FQBN:
+
+| | Baseline | With OLED | Delta |
+|---|---|---|---|
+| Program storage | 313,366 B (23%) | 352,058 B (26%) | +38,692 B |
+| Dynamic memory | 22,216 B (6%) | 23,840 B (7%) | +1,624 B |
+
+The RAM delta is dominated by the SSD1306 1 KB frame buffer plus the small
+driver state. Flash grows because the GFX drawing primitives and the font table
+are linked in. **Both remain well inside the ESP32-S3's limits.**
+
+Setting `OLED_ENABLED 0` in `config.h` removes all of it — the include, the
+instance and every hook are behind the switch, so the panel can be compiled out
+entirely if a build needs the space back.
+
+## I2C status panel
+
+An optional SSD1306 128x64 OLED mirrors the lifecycle on the bench, so an
+operator can read the board without a laptop.
+
+| Signal | Pin |
+|---|---|
+| SDA | **GPIO 8** |
+| SCL | **GPIO 9** |
+| VCC | **3.3 V only — do not use 5 V** |
+| GND | GND |
+| Address | 0x3C, or 0x3D — probed at boot |
+
+GPIO11, GPIO12 and GPIO14 are unchanged. The panel is **advisory**: it reads the
+incident core and the lamp states and cannot drive a pin, silence a buzzer, clear
+a latch or gate a transition. If no panel answers at either address the sketch
+prints one `WARN oled` line at boot and continues exactly as before, retrying a
+bounded number of times.
+
+`STATUS` reports the panel so a laptop can confirm it:
+
+```
+oled            : ONLINE @0x3C  128x64 i2c sda=GPIO8 scl=GPIO9
+```
+
+or `ABSENT (retrying)` / `ABSENT (gave up)`. Absence is informational, never an
+error.
+
+Screen content by state:
+
+| State | Headline | Severity | Banner |
+|---|---|---|---|
+| `SAFE` | `SAFE` | NOMINAL | plain |
+| `ALARM_LATCHED` | `ALERT` | ALERT | **inverted bar** |
+| `SILENCED` | `WARNING` | WARNING | plain |
+| `ACKNOWLEDGED` | `WARNING` | WARNING | plain |
+| `READY_TO_RESET` | `WARNING` | WARNING | plain |
+| `FAULT` | `FAULT` | FAULT | **inverted bar** |
+
+The three circle glyphs (G / R / B) are filled when that output is energised.
+They are drawn from the actual pin state, not the core's intent, so during a
+manual self-test the panel shows what the lamps are really doing.
+
+> **Status of the panel: ASSUMED, not measured.** The wiring above is the
+> requested configuration and has not been observed on physical hardware. The
+> display path is covered by host tests (`tests/test_oled_status_model.py`) but
+> the I2C bus and the glass are unverified. Record what you actually see in
+> `docs/hardware_bringup.md` before claiming it works.
 
 ## Upload
 

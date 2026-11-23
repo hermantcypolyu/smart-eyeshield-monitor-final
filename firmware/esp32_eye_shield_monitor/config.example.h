@@ -122,6 +122,71 @@
 #define YELLOW_FAST_BLINK_MS 150
 
 /* ---------------------------------------------------------------------------
+ * I2C OLED status display — SSD1306, 128x64
+ *
+ * A local head-up display for the operator. It is PURELY ADVISORY: the OLED
+ * mirrors state that the incident lifecycle has already decided, and nothing on
+ * the display can change a pin, clear an alarm or gate a transition. Losing the
+ * display must never affect safety behaviour, which is why the sketch treats a
+ * missing panel as a warning and keeps running.
+ *
+ * Wiring (3.3 V ONLY - the module is not 5 V tolerant):
+ *   OLED VCC -> 3V3      OLED GND -> GND
+ *   OLED SDA -> GPIO8    OLED SCL -> GPIO9
+ *
+ * GPIO8/GPIO9 are free on this board build. The three fixed outputs stay on
+ * GPIO11 (green), GPIO12 (red) and GPIO14 (buzzer) and are NOT touched by this
+ * feature. Do not move the OLED onto a strapping pin (GPIO0/3/45/46) or onto a
+ * pin already used by the outputs.
+ * ------------------------------------------------------------------------ */
+
+/* 1 = build the OLED support in. Set to 0 to compile the sketch exactly as it
+ * was before the display existed, with zero flash/RAM cost. */
+#define OLED_ENABLED 1
+
+/* I2C pins. ASSUMED: this is the requested wiring (SDA GPIO8, SCL GPIO9) and has
+ * not been observed on hardware yet. Record it in docs/hardware_bringup.md once
+ * the panel is actually connected. */
+#define OLED_SDA_PIN 8
+#define OLED_SCL_PIN 9
+
+/* Panel geometry, in pixels. 128x64 is the common SSD1306 module. */
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 64
+
+/* I2C addresses to probe, in order. Modules ship as either 0x3C or 0x3D
+ * depending on the DC-pin strap on the back of the panel, and the address is
+ * detected at runtime rather than compiled in. */
+#define OLED_PRIMARY_I2C_ADDRESS 0x3C
+#define OLED_ALTERNATE_I2C_ADDRESS 0x3D
+
+/* Bus clock. 400 kHz is the SSD1306 maximum and keeps a full 1 KB frame push
+ * near 23 ms instead of the ~92 ms a 100 kHz bus would cost. That difference
+ * matters because the refresh shares loop() with the serial poll and the
+ * non-blocking self-test. */
+#define OLED_I2C_CLOCK_HZ 400000UL
+
+/* Minimum gap between full-frame pushes. The renderer also redraws immediately
+ * when the content actually changes, so this is a floor, not the only trigger.
+ * A full frame is ~1 KB, so 500 ms costs well under 5 % of loop() time. */
+#define OLED_REFRESH_MS 500
+
+/* Absolute floor between two pushes, even when the content changed. Protects
+ * loop() from a burst of state changes turning into a burst of I2C traffic. */
+#define OLED_MIN_DRAW_INTERVAL_MS 100
+
+/* How long the boot splash stays up before live telemetry takes over. Counted
+ * with millis(); loop() never blocks for it. */
+#define OLED_BOOT_HOLD_MS 1500
+
+/* If the panel is absent at power-up (unplugged, miswired, dead), retry the
+ * address probe on this interval so plugging it in later still works. Bounded by
+ * OLED_MAX_INIT_ATTEMPTS so a shorted bus does not cost a probe every cycle for
+ * the whole run. */
+#define OLED_RETRY_MS 5000
+#define OLED_MAX_INIT_ATTEMPTS 3
+
+/* ---------------------------------------------------------------------------
  * Incident lifecycle timing
  * ------------------------------------------------------------------------ */
 
