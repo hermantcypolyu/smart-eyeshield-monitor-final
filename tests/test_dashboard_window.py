@@ -117,7 +117,7 @@ def test_heartbeat_reply_does_not_confirm_an_acknowledgement(live_window):
     # The board must answer the alarm before the operator may press A: until it
     # does, the correlator legitimately holds the slot and refuses a second
     # command, which is what stops a stale reply confirming the wrong one.
-    assert port.written[-1] == "INCIDENT 1"
+    assert port.written[-1] == "INCIDENT 500"
     window._on_serial_line("OK ALARM_LATCHED 1")
     window.request_acknowledge()
     assert port.written[-1].startswith("ACKNOWLEDGE")
@@ -190,14 +190,14 @@ def test_pending_reset_token_is_sent_after_its_reply(live_window):
     window._on_serial_line("OK ALARM_LATCHED 1")
     window.request_acknowledge()
     window._on_serial_line("OK ACKNOWLEDGED")
-    assert "ACKNOWLEDGE 1" in port.written
+    assert "ACKNOWLEDGE 500" in port.written
     # Prove recovery so the reset gate can open.
     safe = window.Observation.SAFE
     for step in range(60):
         window._advance(safe, now + 10.0 + step * 0.05, kind="SAFE")
     assert window.lifecycle.reset_blocker().name == "NONE"
     window.request_reset()
-    assert "RESET_READY 1" in port.written
+    assert "RESET_READY 500" in port.written
     window._on_serial_line("OK RESET_READY")
     assert "RESET" in port.written
     window._on_serial_line("OK RESET_ACCEPTED")

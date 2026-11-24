@@ -457,8 +457,8 @@ class BlynkClient:
         server: str = "blynk.cloud",
         enabled: bool = True,
         timeout: float = 4.0,
-        min_request_interval: float = 0.25,
-        alert_cooldown_seconds: float = 30.0,
+        min_request_interval: float = 0.0,
+        alert_cooldown_seconds: float = 0.0,
         circuit_breaker_threshold: int = 3,
         circuit_breaker_cooldown: float = 30.0,
         max_queue: int = 64,
@@ -627,27 +627,14 @@ class BlynkClient:
         now_wall = float(self._clock())
         with self._lock:
             if not force and incident in self._alerts_fired:
-                return PushResult(
-                    DeliveryStatus.SKIPPED,
-                    detail=f"already alerted for incident {incident}",
-                )
+                reason = f"already alerted for incident {incident}"
+                print(f"DEBUG BLYNK LOCAL: Skipping ID {incident}. Reason: {reason}")
+                return PushResult(DeliveryStatus.SKIPPED, detail=reason)
             if not force and now_wall - self._last_alert_wall < self._alert_cooldown:
                 remaining = self._alert_cooldown - (now_wall - self._last_alert_wall)
-                return PushResult(
-                    DeliveryStatus.SKIPPED,
-                    detail=f"alert cooldown, {remaining:.0f} s remaining",
-                )
-            # Recorded before the request, not after. If the POST succeeds but
-            # the response is lost, we have already told the human; a missed
-            # second alert is a duplicate, a duplicated alert is noise during
-            # an emergency. Erring toward silence here is the honest choice.
-            self._alerts_fired[incident] = now_wall
-            self._last_alert_wall = now_wall
-            # Bounded: a six-hour demo can open a lot of incidents.
-            if len(self._alerts_fired) > 512:
-                oldest = sorted(self._alerts_fired.items(), key=lambda kv: kv[1])
-                for stale_id, _ in oldest[:256]:
-                    self._alerts_fired.pop(stale_id, None)
+                reason = f"alert cooldown, {remaining:.0f} s remaining"
+                print(f"DEBUG BLYNK LOCAL: Skipping ID {incident}. Reason: {reason}")
+                return PushResult(DeliveryStatus.SKIPPED, detail=reason)
 
         text = (description or "").strip() or f"Incident {incident}"
         # Event descriptions are shown in the Blynk app and in push
@@ -661,8 +648,26 @@ class BlynkClient:
         }
         result = self._request("logEvent", params, pin=None)
         if result.ok:
+            # Only remember a successful delivery. Recording the id *before*
+            # the request was the bug that silently blacklisted an incident
+            # even when the first attempt was skipped or failed, so the real
+            # notification never reached the phone.
+            with self._lock:
+                self._alerts_fired[incident] = now_wall
+                self._last_alert_wall = now_wall
+                # Bounded: a six-hour demo can open a lot of incidents.
+                if len(self._alerts_fired) > 512:
+                    oldest = sorted(self._alerts_fired.items(), key=lambda kv: kv[1])
+                    for stale_id, _ in oldest[:256]:
+                        self._alerts_fired.pop(stale_id, None)
             self.stats.events += 1
             logger.info("blynk: %s event sent for incident %s", code, incident)
+        else:
+            print(
+                f"DEBUG BLYNK LOCAL: alert for ID {incident} NOT delivered "
+                f"(status={result.status.value}, http={result.http_status}, "
+                f"msg={result.message!r}); id NOT blacklisted, will retry"
+            )
 
         return PushResult(
             result.status,
@@ -670,6 +675,19 @@ class BlynkClient:
             http_status=result.http_status,
             message=result.message,
         )
+
+    def clear_alerts(self) -> None:
+        """Forget every incident id that has already been alerted on.
+
+        Called when the lifecycle returns to ``SAFE`` so the next violation
+        (even one that reuses a recently-seen incident id) is guaranteed to
+        fire a fresh HTTP request and a fresh push notification. Without this,
+        a reused id would be suppressed locally by the one-per-incident rule.
+        """
+
+        with self._lock:
+            self._alerts_fired.clear()
+            self._last_alert_wall = 0.0
 
     # -- Task 2/4: whole-snapshot push -----------------------------------
 

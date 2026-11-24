@@ -285,6 +285,11 @@ class MainWindow(QMainWindow):
         )
         self.lifecycle.start(time.monotonic())
 
+        # Skip any stale incident ids from a previous run so the first alarm
+        # fires with a fresh id and a clean notification, instead of colliding
+        # with ids the Blynk client already marked as "alerted".
+        self.lifecycle.next_incident_id = 500
+
         self.temporal = TemporalFilter(
             confirmation_seconds=confirmation_seconds,
             clearance_seconds=clearance_seconds,
@@ -334,6 +339,13 @@ class MainWindow(QMainWindow):
         # lifecycle and pushes V0-V10; it can never drive an output. Missing
         # or disabled config degrades to a chip that says so, never a crash.
         self._blynk: BlynkClient | None = None
+        # Throttle marker for Blynk datastream pushes. ``_push_blynk`` is
+        # called every frame (~30 FPS); pushing on every tick floods the cloud
+        # and trips Blynk's anti-spam, but pushing only on state *transitions*
+        # froze the dashboard widgets in steady state (SAFE). So we push the
+        # datastreams at 1 Hz and let the client's own event anti-spam fire
+        # ``eye_violation`` exactly once per incident.
+        self._last_blynk_push_time: float = 0.0
         # ISO timestamp of the most recent ALARM_LATCHED transition. Tracked
         # here (GUI layer) rather than in the shared state machine so V6 stays
         # populated without touching incident_lifecycle.py.
@@ -995,10 +1007,32 @@ class MainWindow(QMainWindow):
         if client is None or not client.enabled:
             return
 
+        state_value = status.state.value
+        incident_id = status.incident_id
+
+        # Time-based throttling: refresh the datastreams at 1 Hz rather than
+        # every frame (30 FPS) or only on transitions. The latter froze the
+        # dashboard widgets in steady state; the former floods Blynk and trips
+        # its anti-spam. At 1 Hz the datastreams stay live while the client's
+        # own event anti-spam still fires ``eye_violation`` exactly once per
+        # incident id.
+        now = time.monotonic()
+        if now - self._last_blynk_push_time < 1.0:
+            return
+
+        self._last_blynk_push_time = now
+
+        # On a clean return to SAFE, forget every already-alerted incident id
+        # so the next violation fires a fresh notification even if the
+        # lifecycle happens to reuse a recent id. Without this, the client's
+        # one-per-incident anti-spam would suppress the next real alarm.
+        if status.state is OperatorState.SAFE:
+            client.clear_alerts()
+
         green, red, buzzer = alarm_intent_to_gpio(status.alarm)
         reading = LifecycleReading(
-            state=status.state.value,
-            incident_id=status.incident_id,
+            state=state_value,
+            incident_id=incident_id,
             violation_ratio=status.violation_ratio,
             link_online=bool(self._serial_ok),
             incident_count=max(0, self.lifecycle.next_incident_id - 1),

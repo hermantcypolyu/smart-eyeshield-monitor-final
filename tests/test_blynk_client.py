@@ -354,6 +354,41 @@ def test_alert_without_an_incident_id_is_a_skip_not_an_error():
     assert session.calls == []
 
 
+def test_a_failed_first_attempt_does_not_blacklist_the_incident():
+    # Regression test for the bug where ``_alerts_fired`` recorded the id
+    # *before* the request, so a skipped/failed first attempt permanently
+    # suppressed every later trigger of the same id and the notification never
+    # reached the phone. The id must only be remembered on a successful HTTP
+    # delivery.
+    session = _Session(error=requests.ConnectionError("boom"))
+    client = _client(session)
+
+    first = client.trigger_alert(5, "Goggles removed")
+    assert first.status is DeliveryStatus.ERROR
+    assert 5 not in client._alerts_fired
+
+    # Once the network recovers, the same id must be allowed through.
+    session.error = None
+    second = client.trigger_alert(5, "Goggles removed")
+    assert second.ok
+    assert 5 in client._alerts_fired
+    # Only the successful retry counts as a delivered event; the failed first
+    # attempt must not have blacklisted the id (the whole point of the fix).
+    assert client.stats.events == 1
+
+
+def test_clear_alerts_allows_a_reused_incident_id_to_fire_again():
+    session = _Session()
+    client = _client(session)
+
+    assert client.trigger_alert(5, "one").ok
+    assert client.trigger_alert(5, "again").status is DeliveryStatus.SKIPPED
+
+    client.clear_alerts()
+    assert client.trigger_alert(5, "after clear").ok
+    assert len(session.param_sets("logEvent")) == 2
+
+
 def test_push_status_fires_the_event_when_entering_alarm_latched():
     session = _Session()
     client = _client(session)
