@@ -129,7 +129,7 @@ def run(fake: bool) -> int:
     # -- 2. violation -> ALARM_LATCHED -----------------------------------
     alarm = LifecycleReading(
         state="ALARM_LATCHED",
-        incident_id=1,
+        incident_id=999,
         violation_ratio=0.94,
         link_online=True,
         incident_count=1,
@@ -164,7 +164,7 @@ def run(fake: bool) -> int:
     # -- 4. acknowledge: red held, buzzer off ----------------------------
     acked = LifecycleReading(
         state="ACKNOWLEDGED",
-        incident_id=1,
+        incident_id=999,
         violation_ratio=0.0,
         link_online=True,
         incident_count=1,
